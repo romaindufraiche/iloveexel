@@ -3,7 +3,7 @@ const PALETTE = ["#0fa968", "#2563eb", "#f59e0b", "#ef4444", "#8b5cf6", "#06b6d4
 export const CHART_WIDTH = 520;
 export const CHART_HEIGHT = 300;
 
-function escapeXml(value: string): string {
+export function escapeXml(value: string): string {
   return value
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
@@ -11,8 +11,51 @@ function escapeXml(value: string): string {
     .replace(/"/g, "&quot;");
 }
 
-function truncate(label: string, max = 12): string {
+export function truncate(label: string, max = 12): string {
   return label.length > max ? `${label.slice(0, max - 1)}…` : label;
+}
+
+// A table rendered as SVG at the same fixed canvas size as the other
+// charts, so any chart kind (including "table") can be embedded uniformly
+// in the single-image PNG export.
+export function tableToSvg(columns: string[], rows: string[][]): string {
+  const marginLeft = 12;
+  const marginRight = 12;
+  const marginTop = 14;
+  const usableWidth = CHART_WIDTH - marginLeft - marginRight;
+  const maxRows = 8;
+  const shownRows = rows.slice(0, maxRows);
+  const rowHeight = Math.min(28, (CHART_HEIGHT - marginTop - 24) / (shownRows.length + 1));
+  const firstColWidth = Math.min(Math.max(usableWidth * 0.4, 100), 220);
+  const otherColWidth = (usableWidth - firstColWidth) / Math.max(1, columns.length - 1);
+  const colX = columns.map((_, i) => marginLeft + (i === 0 ? 0 : firstColWidth + (i - 1) * otherColWidth));
+
+  let headerSvg = "";
+  columns.forEach((col, i) => {
+    headerSvg += `<text x="${colX[i]}" y="${marginTop + 12}" font-size="11" font-weight="bold" fill="#6b7280" font-family="Helvetica">${escapeXml(
+      truncate(col, i === 0 ? 26 : 16)
+    )}</text>`;
+  });
+
+  let rowsSvg = "";
+  shownRows.forEach((row, r) => {
+    const y = marginTop + 22 + r * rowHeight;
+    if (r % 2 === 1) {
+      rowsSvg += `<rect x="${marginLeft}" y="${y - rowHeight + 8}" width="${usableWidth}" height="${rowHeight - 2}" fill="#f3faf6" />`;
+    }
+    row.forEach((cell, i) => {
+      rowsSvg += `<text x="${colX[i]}" y="${y}" font-size="10.5" fill="#111827" font-family="Helvetica">${escapeXml(
+        truncate(cell, i === 0 ? 28 : 16)
+      )}</text>`;
+    });
+  });
+
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${CHART_WIDTH}" height="${CHART_HEIGHT}" viewBox="0 0 ${CHART_WIDTH} ${CHART_HEIGHT}">
+    <rect x="0" y="0" width="${CHART_WIDTH}" height="${CHART_HEIGHT}" fill="#ffffff" />
+    ${headerSvg}
+    <line x1="${marginLeft}" y1="${marginTop + 18}" x2="${CHART_WIDTH - marginRight}" y2="${marginTop + 18}" stroke="#e5e7eb" />
+    ${rowsSvg}
+  </svg>`;
 }
 
 function niceMax(value: number): number {

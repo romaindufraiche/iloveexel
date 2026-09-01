@@ -1,8 +1,9 @@
 import PDFDocument from "pdfkit";
 import SVGtoPDF from "svg-to-pdfkit";
 import { barChart, donutChart, heatmapChart, lineChart, scatterChart, CHART_HEIGHT, CHART_WIDTH } from "./svgCharts";
-import type { AnalysisResult, ChartSpec, NumericStats, TableChart } from "./types";
+import type { AnalysisResult, ChartSpec, TableChart } from "./types";
 import { formatNumber } from "./format";
+import { buildKpis } from "./kpis";
 
 const BRAND_NAME = "SheetInsight";
 const GREEN = "#0a8a54";
@@ -161,20 +162,7 @@ export async function generatePdfReport(analysis: AnalysisResult): Promise<Buffe
   doc.y += 24;
 
   // ---------- Direct KPIs: the numbers that matter, spelled out ----------
-  type Kpi = { label: string; value: string };
-  const kpis: Kpi[] = [{ label: "Lignes analysées", value: formatNumber(analysis.rowCount) }];
-  for (const metric of analysis.keyMetrics.slice(0, 3)) {
-    const stats = metric.stats as NumericStats;
-    kpis.push({ label: `Total ${metric.name}`, value: formatNumber(stats.sum) });
-  }
-  if (kpis.length < 3 && analysis.keyMetrics[0]) {
-    const stats = analysis.keyMetrics[0].stats as NumericStats;
-    kpis.push({ label: `Moyenne ${analysis.keyMetrics[0].name}`, value: formatNumber(stats.mean) });
-  }
-  if (kpis.length < 3) {
-    kpis.push({ label: "Colonnes", value: String(analysis.columnCount) });
-  }
-  const shownKpis = kpis.slice(0, 4);
+  const shownKpis = buildKpis(analysis);
 
   const kpiGap = 12;
   const kpiWidth = (contentWidth - kpiGap * (shownKpis.length - 1)) / shownKpis.length;
