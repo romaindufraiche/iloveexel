@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import PremiumModal from "./PremiumModal";
 
 type Status = "idle" | "dragging" | "uploading" | "success" | "error" | "limit";
 type ExportFormat = "pdf" | "pptx" | "png";
@@ -34,6 +35,7 @@ export default function UploadCard() {
   const [downloadName, setDownloadName] = useState<string>("");
   const [format, setFormat] = useState<ExportFormat>("pdf");
   const [quota, setQuota] = useState<{ remaining: number; limit: number } | null>(null);
+  const [showPremiumModal, setShowPremiumModal] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -227,13 +229,43 @@ export default function UploadCard() {
             </div>
             <p className="text-lg font-semibold text-gray-800">Votre rapport est prêt !</p>
             <p className="mt-1 text-sm text-gray-500">Le téléchargement a démarré automatiquement.</p>
-            <a
-              href={downloadUrl}
-              download={downloadName}
-              className="mt-6 inline-flex items-center rounded-full bg-brand-600 px-6 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-700"
-            >
-              Télécharger {format === "pdf" ? "le PDF" : format === "pptx" ? "le PowerPoint" : "l'image"}
-            </a>
+
+            {format === "pdf" ? (
+              <>
+                <embed src={downloadUrl} type="application/pdf" className="mt-6 h-[420px] w-full rounded-lg border border-gray-200" />
+                {/* Not every browser renders an embedded PDF inline (notably several mobile browsers) — always offer a guaranteed fallback. */}
+                <a href={downloadUrl} target="_blank" rel="noopener noreferrer" className="mt-2 inline-block text-xs font-medium text-brand-700 hover:underline">
+                  L&apos;aperçu ne s&apos;affiche pas ? Ouvrir dans un nouvel onglet ↗
+                </a>
+              </>
+            ) : format === "png" ? (
+              <img src={downloadUrl} alt="Aperçu du rapport" className="mt-6 w-full rounded-lg border border-gray-200" />
+            ) : (
+              <div className="mt-6 rounded-lg border border-dashed border-gray-300 bg-gray-50 py-8 text-sm text-gray-500">
+                Aperçu non disponible pour PowerPoint — téléchargez le fichier pour l&apos;ouvrir.
+              </div>
+            )}
+
+            <div className="mt-5 flex flex-col gap-2 sm:flex-row">
+              <a
+                href={downloadUrl}
+                download={downloadName}
+                className="inline-flex flex-1 items-center justify-center rounded-full bg-brand-600 px-6 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-700"
+              >
+                Télécharger {format === "pdf" ? "le PDF" : format === "pptx" ? "le PowerPoint" : "l'image"}
+              </a>
+              <button
+                type="button"
+                onClick={() => setShowPremiumModal(true)}
+                className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-full border border-gray-200 px-6 py-3 text-sm font-semibold text-gray-700 transition hover:border-brand-300 hover:text-brand-700"
+              >
+                <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2}>
+                  <rect x="5" y="11" width="14" height="9" rx="2" strokeLinecap="round" strokeLinejoin="round" />
+                  <path d="M8 11V7a4 4 0 018 0v4" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+                Modifier
+              </button>
+            </div>
             <button type="button" onClick={reset} className="mt-4 block w-full text-sm font-medium text-gray-500 hover:text-brand-700">
               Analyser un autre fichier
             </button>
@@ -315,6 +347,8 @@ export default function UploadCard() {
           )}
         </p>
       ) : null}
+
+      {showPremiumModal ? <PremiumModal onClose={() => setShowPremiumModal(false)} /> : null}
     </div>
   );
 }
