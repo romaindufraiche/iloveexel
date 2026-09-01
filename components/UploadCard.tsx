@@ -1,8 +1,9 @@
 "use client";
 
 import { useCallback, useRef, useState } from "react";
-import PremiumModal from "./PremiumModal";
+import PlansModal from "./PlansModal";
 import ReportEditor, { type EditorAnalysis } from "./ReportEditor";
+import ReportPreview from "./ReportPreview";
 
 type Status = "idle" | "dragging" | "uploading" | "success" | "error" | "limit";
 type ExportFormat = "pdf" | "pptx" | "png";
@@ -35,10 +36,10 @@ export default function UploadCard() {
   const [downloadUrl, setDownloadUrl] = useState<string>("");
   const [downloadName, setDownloadName] = useState<string>("");
   const [format, setFormat] = useState<ExportFormat>("pdf");
-  const [showPremiumModal, setShowPremiumModal] = useState(false);
+  const [showPlansModal, setShowPlansModal] = useState(false);
   const [lastFile, setLastFile] = useState<File | null>(null);
-  const [editorAnalysis, setEditorAnalysis] = useState<EditorAnalysis | null>(null);
-  const [editorLoading, setEditorLoading] = useState(false);
+  const [reportAnalysis, setReportAnalysis] = useState<EditorAnalysis | null>(null);
+  const [isEditing, setIsEditing] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const reset = useCallback(() => {
@@ -48,7 +49,22 @@ export default function UploadCard() {
     setErrorMessage("");
     setDownloadUrl("");
     setDownloadName("");
-    setEditorAnalysis(null);
+    setReportAnalysis(null);
+    setIsEditing(false);
+  }, []);
+
+  const fetchPreview = useCallback(async (file: File) => {
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("format", "json");
+      const res = await fetch("/api/analyze", { method: "POST", body: formData });
+      if (!res.ok) return;
+      const data = await res.json();
+      setReportAnalysis(data as EditorAnalysis);
+    } catch {
+      // Preview is a bonus on top of the already-downloaded file — fail silently.
+    }
   }, []);
 
   const uploadFile = useCallback(
@@ -65,6 +81,7 @@ export default function UploadCard() {
       }
 
       setLastFile(file);
+      setReportAnalysis(null);
       setFileName(file.name);
       setStatus("uploading");
       setProgress(0);
@@ -91,6 +108,7 @@ export default function UploadCard() {
           setDownloadUrl(url);
           setDownloadName(name);
           setStatus("success");
+          fetchPreview(file);
 
           const link = document.createElement("a");
           link.href = url;
@@ -121,31 +139,8 @@ export default function UploadCard() {
 
       xhr.send(formData);
     },
-    [format]
+    [format, fetchPreview]
   );
-
-  const openEditor = useCallback(async () => {
-    if (!lastFile) return;
-    setEditorLoading(true);
-    try {
-      const formData = new FormData();
-      formData.append("file", lastFile);
-      formData.append("format", "json");
-      const res = await fetch("/api/analyze", { method: "POST", body: formData });
-      const data = await res.json();
-      if (!res.ok) {
-        setStatus("error");
-        setErrorMessage(data?.error || "Impossible d'ouvrir l'éditeur pour ce fichier.");
-        return;
-      }
-      setEditorAnalysis(data as EditorAnalysis);
-    } catch {
-      setStatus("error");
-      setErrorMessage("Impossible de contacter le serveur.");
-    } finally {
-      setEditorLoading(false);
-    }
-  }, [lastFile]);
 
   const onDrop = useCallback(
     (event: React.DragEvent<HTMLDivElement>) => {
@@ -177,16 +172,16 @@ export default function UploadCard() {
 
   const showFormatPicker = status === "idle" || status === "dragging";
 
-  if (editorAnalysis && lastFile) {
+  if (isEditing && reportAnalysis && lastFile) {
     return (
       <>
         <ReportEditor
-          analysis={editorAnalysis}
+          analysis={reportAnalysis}
           file={lastFile}
-          onRequestDownload={() => setShowPremiumModal(true)}
-          onClose={() => setEditorAnalysis(null)}
+          onRequestDownload={() => setShowPlansModal(true)}
+          onClose={() => setIsEditing(false)}
         />
-        {showPremiumModal ? <PremiumModal onClose={() => setShowPremiumModal(false)} /> : null}
+        {showPlansModal ? <PlansModal onClose={() => setShowPlansModal(false)} reason="download" /> : null}
       </>
     );
   }
@@ -249,19 +244,11 @@ export default function UploadCard() {
             <p className="text-lg font-semibold text-gray-800">Votre rapport est prêt !</p>
             <p className="mt-1 text-sm text-gray-500">Le téléchargement a démarré automatiquement.</p>
 
-            {format === "pdf" ? (
-              <>
-                <embed src={downloadUrl} type="application/pdf" className="mt-6 h-[420px] w-full rounded-lg border border-gray-200" />
-                {/* Not every browser renders an embedded PDF inline (notably several mobile browsers) — always offer a guaranteed fallback. */}
-                <a href={downloadUrl} target="_blank" rel="noopener noreferrer" className="mt-2 inline-block text-xs font-medium text-brand-700 hover:underline">
-                  L&apos;aperçu ne s&apos;affiche pas ? Ouvrir dans un nouvel onglet ↗
-                </a>
-              </>
-            ) : format === "png" ? (
-              <img src={downloadUrl} alt="Aperçu du rapport" className="mt-6 w-full rounded-lg border border-gray-200" />
+            {reportAnalysis ? (
+              <ReportPreview analysis={reportAnalysis} />
             ) : (
               <div className="mt-6 rounded-lg border border-dashed border-gray-300 bg-gray-50 py-8 text-sm text-gray-500">
-                Aperçu non disponible pour PowerPoint — téléchargez le fichier pour l&apos;ouvrir.
+                Génération de l&apos;aperçu…
               </div>
             )}
 
@@ -275,11 +262,11 @@ export default function UploadCard() {
               </a>
               <button
                 type="button"
-                onClick={openEditor}
-                disabled={editorLoading}
+                onClick={() => setIsEditing(true)}
+                disabled={!reportAnalysis}
                 className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-full border border-gray-200 px-6 py-3 text-sm font-semibold text-gray-700 transition hover:border-brand-300 hover:text-brand-700 disabled:opacity-60"
               >
-                {editorLoading ? "Ouverture…" : "Modifier"}
+                {reportAnalysis ? "Modifier" : "Chargement…"}
               </button>
             </div>
             <button type="button" onClick={reset} className="mt-4 block w-full text-sm font-medium text-gray-500 hover:text-brand-700">
@@ -320,15 +307,15 @@ export default function UploadCard() {
             </div>
             <p className="text-lg font-semibold text-gray-800">Limite gratuite atteinte pour aujourd&apos;hui</p>
             <p className="mt-1 text-sm text-gray-500">
-              Vous avez utilisé vos analyses gratuites du jour. Revenez demain, ou passez à SheetInsight Premium pour des analyses
-              illimitées.
+              Vous avez utilisé vos analyses gratuites du jour. Revenez demain, ou connectez-vous pour plus de volume.
             </p>
-            <a
-              href="#premium"
+            <button
+              type="button"
+              onClick={() => setShowPlansModal(true)}
               className="mt-6 inline-flex items-center rounded-full bg-brand-600 px-6 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-700"
             >
-              Découvrir Premium
-            </a>
+              Voir les offres
+            </button>
           </div>
         ) : null}
       </div>
@@ -351,7 +338,7 @@ export default function UploadCard() {
         </div>
       ) : null}
 
-      {showPremiumModal ? <PremiumModal onClose={() => setShowPremiumModal(false)} /> : null}
+      {showPlansModal ? <PlansModal onClose={() => setShowPlansModal(false)} reason="account" /> : null}
     </div>
   );
 }

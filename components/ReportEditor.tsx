@@ -1,20 +1,12 @@
 "use client";
 
 import { useCallback, useId, useState } from "react";
-import {
-  barChart,
-  donutChart,
-  heatmapChart,
-  lineChart,
-  scatterChart,
-  tableToSvg,
-  PALETTE_PRESETS,
-  CHART_WIDTH,
-  CHART_HEIGHT,
-} from "@/lib/svgCharts";
-import type { BarLineChart, ChartSpec, DonutChart } from "@/lib/types";
+import { PALETTE_PRESETS, CHART_WIDTH, CHART_HEIGHT } from "@/lib/svgCharts";
+import { isTypeSwitchable, renderChartSvg, type EditableChartKind } from "@/lib/chartRender";
+import type { ChartSpec } from "@/lib/types";
+import type { Kpi } from "@/lib/kpis";
 
-type EditableKind = "bar" | "line" | "donut";
+type EditableKind = EditableChartKind;
 
 interface ChartBlock {
   kind: "chart";
@@ -34,34 +26,12 @@ interface NoteBlock {
 
 type Block = ChartBlock | NoteBlock;
 
-interface Kpi {
-  label: string;
-  value: string;
-}
-
 export interface EditorAnalysis {
   fileName: string;
   sheetName: string;
   rowCount: number;
   kpis: Kpi[];
   charts: ChartSpec[];
-}
-
-function isTypeSwitchable(chart: ChartSpec): chart is BarLineChart | DonutChart {
-  return chart.kind === "bar" || chart.kind === "line" || chart.kind === "donut";
-}
-
-function renderChartSvg(chart: ChartSpec, typeOverride: EditableKind | undefined, palette: string[]): string {
-  if (isTypeSwitchable(chart)) {
-    const kind = typeOverride ?? chart.kind;
-    const seriesLabel = "seriesLabel" in chart ? chart.seriesLabel : undefined;
-    if (kind === "line") return lineChart(chart.labels, chart.values, seriesLabel, palette[0]);
-    if (kind === "donut") return donutChart(chart.labels, chart.values, palette);
-    return barChart(chart.labels, chart.values, seriesLabel, palette);
-  }
-  if (chart.kind === "scatter") return scatterChart(chart.points, chart.xLabel, chart.yLabel);
-  if (chart.kind === "heatmap") return heatmapChart(chart.rowLabels, chart.colLabels, chart.matrix, chart.displayMatrix, chart.colorScale);
-  return tableToSvg(chart.columns, chart.rows);
 }
 
 function blockIdFrom(prefix: string, index: number): string {
@@ -260,7 +230,7 @@ export default function ReportEditor({
               </div>
 
               <div
-                className="mx-auto w-full max-w-[520px]"
+                className="mx-auto w-full max-w-[520px] overflow-hidden [&>svg]:h-full [&>svg]:w-full"
                 style={{ aspectRatio: `${CHART_WIDTH} / ${CHART_HEIGHT}` }}
                 dangerouslySetInnerHTML={{
                   __html: renderChartSvg(block.original, block.typeOverride, PALETTE_PRESETS[block.paletteIndex].colors),

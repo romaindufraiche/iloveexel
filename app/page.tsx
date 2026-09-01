@@ -1,4 +1,5 @@
 import UploadCard from "@/components/UploadCard";
+import AccountButton from "@/components/AccountButton";
 
 const STEPS = [
   {
@@ -36,7 +37,7 @@ const FAQ = [
   },
   {
     q: "Combien d'analyses puis-je faire gratuitement ?",
-    a: "5 analyses gratuites par jour, sans création de compte. Pour un usage illimité et la personnalisation des graphiques, passez à SheetInsight Premium.",
+    a: "5 analyses gratuites par jour, sans création de compte, avec personnalisation complète des graphiques. Besoin de plus de volume ou de l'accès API ? Connectez-vous pour découvrir nos offres Analyste et Expert.",
   },
   {
     q: "Mes données sont-elles conservées ?",
@@ -54,23 +55,6 @@ function StepIcon({ children }: { children: React.ReactNode }) {
   );
 }
 
-function CheckIcon() {
-  return (
-    <svg viewBox="0 0 24 24" className="h-5 w-5 flex-shrink-0 text-brand-600" fill="none" stroke="currentColor" strokeWidth={2.5}>
-      <path d="M5 13l4 4L19 7" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
-function LockIcon() {
-  return (
-    <svg viewBox="0 0 24 24" className="h-5 w-5 flex-shrink-0 text-gray-400" fill="none" stroke="currentColor" strokeWidth={2}>
-      <rect x="5" y="11" width="14" height="9" rx="2" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M8 11V7a4 4 0 018 0v4" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
 export default function HomePage() {
   return (
     <main>
@@ -79,12 +63,7 @@ export default function HomePage() {
           <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-brand-600 text-white font-bold">S</div>
           <span className="text-lg font-bold text-gray-800">SheetInsight</span>
         </div>
-        <a
-          href="#premium"
-          className="rounded-full bg-brand-100 px-3 py-1 text-xs font-semibold text-brand-700 hover:bg-brand-200 transition"
-        >
-          5 analyses gratuites / jour
-        </a>
+        <AccountButton variant="icon" />
       </header>
 
       <section className="mx-auto max-w-3xl px-6 pt-10 pb-16 text-center">
@@ -116,69 +95,6 @@ export default function HomePage() {
         </div>
       </section>
 
-      <section id="premium" className="py-16">
-        <div className="mx-auto max-w-4xl px-6">
-          <h2 className="text-center text-2xl font-bold text-gray-900">Gratuit pour commencer, Premium pour aller plus loin</h2>
-          <p className="mx-auto mt-3 max-w-xl text-center text-sm text-gray-600">
-            Le moteur d&apos;analyse et la personnalisation des rapports sont les mêmes pour tout le monde. Premium débloque le volume et le téléchargement illimité.
-          </p>
-
-          <div className="mt-10 grid gap-6 sm:grid-cols-2">
-            <div className="rounded-2xl border border-gray-200 bg-white p-8">
-              <h3 className="text-lg font-bold text-gray-900">Gratuit</h3>
-              <p className="mt-1 text-3xl font-extrabold text-gray-900">
-                0€ <span className="text-base font-medium text-gray-500">/ toujours</span>
-              </p>
-              <ul className="mt-6 space-y-3 text-sm text-gray-700">
-                <li className="flex items-center gap-2">
-                  <CheckIcon /> 5 téléchargements par jour
-                </li>
-                <li className="flex items-center gap-2">
-                  <CheckIcon /> Personnalisez vos graphiques : type, couleurs, texte
-                </li>
-                <li className="flex items-center gap-2">
-                  <CheckIcon /> Export PDF, PowerPoint et image
-                </li>
-                <li className="flex items-center gap-2">
-                  <CheckIcon /> Détection automatique des graphiques
-                </li>
-                <li className="flex items-center gap-2">
-                  <CheckIcon /> Aucune création de compte
-                </li>
-              </ul>
-            </div>
-
-            <div className="relative rounded-2xl border-2 border-brand-500 bg-white p-8 shadow-sm">
-              <span className="absolute -top-3 right-8 rounded-full bg-brand-600 px-3 py-1 text-xs font-semibold text-white">
-                Bientôt disponible
-              </span>
-              <h3 className="text-lg font-bold text-gray-900">Premium</h3>
-              <p className="mt-1 text-3xl font-extrabold text-gray-900">
-                <span className="text-base font-medium text-gray-500">Tarif à venir</span>
-              </p>
-              <ul className="mt-6 space-y-3 text-sm text-gray-700">
-                <li className="flex items-center gap-2">
-                  <CheckIcon /> Téléchargements illimités, tous les jours
-                </li>
-                <li className="flex items-center gap-2">
-                  <CheckIcon /> Tous les avantages du plan gratuit
-                </li>
-                <li className="flex items-center gap-2">
-                  <LockIcon /> <span className="text-gray-500">Export prioritaire et modèles de rapport</span>
-                </li>
-              </ul>
-              <button
-                type="button"
-                disabled
-                className="mt-6 w-full cursor-not-allowed rounded-full bg-gray-100 px-6 py-3 text-sm font-semibold text-gray-400"
-              >
-                Bientôt disponible
-              </button>
-            </div>
-          </div>
-        </div>
-      </section>
-
       <section className="bg-white py-16">
         <div className="mx-auto max-w-3xl px-6">
           <h2 className="text-center text-2xl font-bold text-gray-900">Questions fréquentes</h2>
@@ -194,7 +110,19 @@ export default function HomePage() {
       </section>
 
       <footer className="border-t border-gray-200 py-8 text-center text-sm text-gray-500">
-        © {new Date().getFullYear()} SheetInsight — L&apos;analyse Excel simplifiée.
+        <p>
+          © {new Date().getFullYear()} SheetInsight — un produit{" "}
+          <a href="https://glmprime.com" target="_blank" rel="noopener noreferrer" className="font-medium text-gray-600 hover:underline">
+            GLM
+          </a>
+          .
+        </p>
+        <p className="mt-1">
+          <a href="https://glmprime.com" target="_blank" rel="noopener noreferrer" className="hover:underline">
+            glmprime.com
+          </a>{" "}
+          · <AccountButton variant="link" />
+        </p>
       </footer>
     </main>
   );
