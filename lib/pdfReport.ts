@@ -1,7 +1,7 @@
 import PDFDocument from "pdfkit";
 import SVGtoPDF from "svg-to-pdfkit";
-import { barChart, donutChart, lineChart, CHART_HEIGHT, CHART_WIDTH } from "./svgCharts";
-import type { AnalysisResult, NumericStats } from "./types";
+import { barChart, donutChart, heatmapChart, lineChart, scatterChart, CHART_HEIGHT, CHART_WIDTH } from "./svgCharts";
+import type { AnalysisResult, ChartSpec, NumericStats, TableChart } from "./types";
 import { formatNumber } from "./format";
 
 const BRAND_NAME = "SheetInsight";
@@ -49,6 +49,77 @@ function drawKpiCard(doc: PDFKit.PDFDocument, x: number, y: number, width: numbe
     .fillColor(GRAY)
     .font("Helvetica")
     .text(label, x + 12, y + 34, { width: width - 24, lineBreak: false, ellipsis: true });
+}
+
+const TABLE_ROW_HEIGHT = 20;
+
+function tableColumnLayout(chart: TableChart, x: number, width: number) {
+  const firstColWidth = Math.min(Math.max(width * 0.38, 120), 220);
+  const otherColWidth = (width - firstColWidth) / Math.max(1, chart.columns.length - 1);
+  const colWidths = chart.columns.map((_, i) => (i === 0 ? firstColWidth : otherColWidth));
+  const colX = chart.columns.map((_, i) => x + (i === 0 ? 0 : firstColWidth + (i - 1) * otherColWidth));
+  return { colWidths, colX };
+}
+
+function estimateTableRowsHeight(chart: TableChart): number {
+  return 24 + chart.rows.length * TABLE_ROW_HEIGHT;
+}
+
+function drawTable(doc: PDFKit.PDFDocument, chart: TableChart, x: number, width: number) {
+  const { colWidths, colX } = tableColumnLayout(chart, x, width);
+
+  // A plain `lineBreak: false` doesn't reliably suppress wrapping for text
+  // that overflows the column width in pdfkit — it can still wrap onto a
+  // second line, which then overlaps the next row since row spacing assumes
+  // a single line. Constraining `height` to exactly one line height is the
+  // pattern that reliably truncates with an ellipsis instead.
+  doc.fontSize(9).font("Helvetica-Bold");
+  const headerLineHeight = doc.currentLineHeight();
+  doc.fillColor(GRAY);
+  const headerY = doc.y;
+  chart.columns.forEach((colName, i) => {
+    doc.text(colName, colX[i], headerY, { width: colWidths[i] - 8, height: headerLineHeight, ellipsis: true });
+  });
+  doc.y = headerY;
+  doc.moveDown(1);
+  doc
+    .moveTo(x, doc.y)
+    .lineTo(x + width, doc.y)
+    .strokeColor("#e5e7eb")
+    .stroke();
+  doc.moveDown(0.3);
+
+  doc.font("Helvetica").fontSize(9.5);
+  const rowLineHeight = doc.currentLineHeight();
+  chart.rows.forEach((row, rowIndex) => {
+    const rowY = doc.y;
+    if (rowIndex % 2 === 1) {
+      doc.rect(x, rowY - 2, width, TABLE_ROW_HEIGHT - 2).fill(LIGHT_BG);
+    }
+    doc.fillColor(DARK);
+    row.forEach((cell, i) => {
+      doc.text(cell, colX[i], rowY, { width: colWidths[i] - 8, height: rowLineHeight, ellipsis: true });
+    });
+    doc.y = rowY;
+    doc.moveDown(1.05);
+  });
+}
+
+function chartToSvg(chart: ChartSpec): string {
+  switch (chart.kind) {
+    case "bar":
+      return barChart(chart.labels, chart.values, chart.seriesLabel);
+    case "line":
+      return lineChart(chart.labels, chart.values, chart.seriesLabel);
+    case "donut":
+      return donutChart(chart.labels, chart.values);
+    case "scatter":
+      return scatterChart(chart.points, chart.xLabel, chart.yLabel);
+    case "heatmap":
+      return heatmapChart(chart.rowLabels, chart.colLabels, chart.matrix, chart.displayMatrix, chart.colorScale);
+    case "table":
+      throw new Error("table charts are drawn directly, not as SVG");
+  }
 }
 
 export async function generatePdfReport(analysis: AnalysisResult): Promise<Buffer> {
@@ -113,20 +184,21 @@ export async function generatePdfReport(analysis: AnalysisResult): Promise<Buffe
   });
   doc.y = kpiY + 60 + 20;
 
-  // ---------- Charts ----------
+  // ---------- Charts & tables ----------
   const scale = contentWidth / CHART_WIDTH;
   const renderedHeight = CHART_HEIGHT * scale;
   let pageIndex = 1;
   let chartOnPage = 0;
   for (const chart of analysis.charts) {
-    // Measure this chart's block precisely before drawing anything: pdfkit
-    // silently starts a new page mid-draw if content overflows, which
-    // desyncs our own page/footer numbering. Deciding up front avoids that.
+    // Measure this block precisely before drawing anything: pdfkit silently
+    // starts a new page mid-draw if content overflows, which desyncs our
+    // own page/footer numbering. Deciding up front avoids that.
     doc.fontSize(13).font("Helvetica-Bold");
     const titleHeight = doc.heightOfString(chart.title, { width: contentWidth });
     doc.fontSize(10).font("Helvetica-Oblique");
     const insightHeight = doc.heightOfString(chart.insight, { width: contentWidth, lineGap: 2 });
-    const blockHeight = titleHeight + 5 + renderedHeight + 8 + insightHeight + 15 + 10;
+    const bodyHeight = chart.kind === "table" ? estimateTableRowsHeight(chart) : renderedHeight;
+    const blockHeight = titleHeight + 5 + bodyHeight + 8 + insightHeight + 15 + 10;
 
     const availableHeight = doc.page.height - doc.page.margins.bottom - doc.y;
     if (chartOnPage > 0 && (chartOnPage >= 2 || blockHeight > availableHeight)) {
@@ -136,17 +208,18 @@ export async function generatePdfReport(analysis: AnalysisResult): Promise<Buffe
       chartOnPage = 0;
     }
 
-    const svg =
-      chart.kind === "bar"
-        ? barChart(chart.labels, chart.values, chart.seriesLabel)
-        : chart.kind === "line"
-          ? lineChart(chart.labels, chart.values, chart.seriesLabel)
-          : donutChart(chart.labels, chart.values);
-
     doc.fontSize(13).font("Helvetica-Bold").fillColor(DARK).text(chart.title, PAGE_MARGIN, doc.y, { width: contentWidth });
     doc.moveDown(0.3);
-    SVGtoPDF(doc, svg, PAGE_MARGIN, doc.y, { width: contentWidth, height: renderedHeight, preserveAspectRatio: "xMidYMid meet" });
-    doc.y += renderedHeight + 8;
+
+    if (chart.kind === "table") {
+      drawTable(doc, chart, PAGE_MARGIN, contentWidth);
+      doc.y += 8;
+    } else {
+      const svg = chartToSvg(chart);
+      SVGtoPDF(doc, svg, PAGE_MARGIN, doc.y, { width: contentWidth, height: renderedHeight, preserveAspectRatio: "xMidYMid meet" });
+      doc.y += renderedHeight + 8;
+    }
+
     doc
       .fontSize(10)
       .font("Helvetica-Oblique")

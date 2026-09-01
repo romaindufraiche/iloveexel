@@ -309,6 +309,62 @@ function scoreCategoryColumn(profile: ColumnProfile): number {
   return nameHintScore(profile.name, CATEGORY_NAME_HINTS) * 5 + (10 - Math.abs(stats.uniqueCount - 6));
 }
 
+function scoreListColumn(profile: ColumnProfile): number {
+  if (profile.type !== "categorical" || profile.isIdLike) return -Infinity;
+  const stats = profile.stats as CategoricalStats;
+  if (stats.uniqueCount <= 20) return -Infinity;
+  return nameHintScore(profile.name, CATEGORY_NAME_HINTS) * 5 - stats.uniqueCount * 0.01;
+}
+
+// How many of the top entries (sorted descending) it takes to reach 80% of
+// the total, and what share they actually hold — the concentration signal
+// behind statements like "3 catégories sur 12 concentrent 82% du total".
+function paretoConcentration(sortedDesc: number[], total: number): { count: number; share: number } | null {
+  if (total <= 0 || sortedDesc.length === 0) return null;
+  let cumulative = 0;
+  let count = 0;
+  for (const v of sortedDesc) {
+    cumulative += v;
+    count++;
+    if (cumulative / total >= 0.8) break;
+  }
+  return { count, share: cumulative / total };
+}
+
+function classifyTrend(changePct: number): string {
+  if (changePct > 30) return "en forte hausse";
+  if (changePct > 10) return "en hausse";
+  if (changePct < -30) return "en forte baisse";
+  if (changePct < -10) return "en baisse";
+  return "globalement stable";
+}
+
+function correlationStrength(coef: number): string {
+  const abs = Math.abs(coef);
+  if (abs > 0.8) return "forte";
+  if (abs > 0.65) return "modérée";
+  return "faible";
+}
+
+// Aggregates the top N entries and folds the remainder into a single
+// "Autres" bucket, so a bar/pie chart always visually accounts for the
+// whole total instead of silently dropping the long tail.
+function bucketTopN(
+  entries: [string, number][],
+  n: number
+): { labels: string[]; values: number[] } {
+  const sorted = [...entries].sort((a, b) => b[1] - a[1]);
+  const top = sorted.slice(0, n);
+  const rest = sorted.slice(n);
+  const labels = top.map(([label]) => label);
+  const values = top.map(([, v]) => v);
+  if (rest.length > 0) {
+    labels.push(`Autres (${rest.length})`);
+    values.push(rest.reduce((a, [, v]) => a + v, 0));
+  }
+  return { labels, values };
+}
+
 function pearson(a: number[], b: number[]): number {
   const n = a.length;
   if (n < 3) return 0;
@@ -344,138 +400,364 @@ function guessDatasetTopic(columnNames: string[]): string {
   return "tabulaires";
 }
 
-function buildCharts(
+function sumMetricByCategory(rows: Record<string, unknown>[], categoryName: string, metricName: string): [string, number][] {
+  const sums = new Map<string, number>();
+  for (const row of rows) {
+    if (isBlank(row[categoryName])) continue;
+    const v = tryParseNumber(row[metricName]);
+    if (v === null) continue;
+    const c = String(row[categoryName]).trim();
+    sums.set(c, (sums.get(c) ?? 0) + v);
+  }
+  return [...sums.entries()];
+}
+
+// Rule A: a date column plus a metric answers "how is it evolving?" — a
+// trend is only meaningful with several distinct periods to compare.
+function buildTrendChart(primaryDate: ColumnProfile | null, metric: ColumnProfile | null, rows: Record<string, unknown>[]): ChartSpec | null {
+  if (!primaryDate || !metric) return null;
+  const monthly = new Map<string, number>();
+  for (const row of rows) {
+    const d = tryParseDate(row[primaryDate.name]);
+    const v = tryParseNumber(row[metric.name]);
+    if (!d || v === null) continue;
+    const label = `${MONTH_LABELS_FR[d.getMonth()]} ${d.getFullYear()}`;
+    monthly.set(label, (monthly.get(label) ?? 0) + v);
+  }
+  const sorted = [...monthly.entries()].sort((a, b) => sortKeyFromLabel(a[0]) - sortKeyFromLabel(b[0]));
+  if (sorted.length < 2) return null;
+
+  const series = sorted.map(([, v]) => v);
+  const segment = Math.max(1, Math.round(series.length * 0.25));
+  const firstAvg = mean(series.slice(0, segment));
+  const lastAvg = mean(series.slice(-segment));
+  const change = firstAvg !== 0 ? ((lastAvg - firstAvg) / Math.abs(firstAvg)) * 100 : 0;
+  const peak = sorted.reduce((a, b) => (b[1] > a[1] ? b : a));
+  const trough = sorted.reduce((a, b) => (b[1] < a[1] ? b : a));
+
+  return {
+    kind: "line",
+    title: `Évolution de ${metric.name} dans le temps`,
+    insight: `${metric.name} est ${classifyTrend(change)} sur la période (${change >= 0 ? "+" : ""}${formatNumber(change)} % entre le début et la fin). Pic en ${peak[0]} (${formatNumber(peak[1])}), creux en ${trough[0]} (${formatNumber(trough[1])}).`,
+    labels: sorted.map(([label]) => label),
+    values: series,
+    seriesLabel: metric.name,
+  };
+}
+
+// Rule B: a low-cardinality category plus a metric is a ranking question —
+// bucketed to 8 bars + "Autres" so the chart stays readable and still sums
+// to the true total.
+function buildCategoryRankingChart(category: ColumnProfile, metric: ColumnProfile, rows: Record<string, unknown>[]): ChartSpec {
+  const entries = sumMetricByCategory(rows, category.name, metric.name);
+  const sortedDesc = [...entries].sort((a, b) => b[1] - a[1]);
+  const total = sortedDesc.reduce((a, [, v]) => a + v, 0);
+  const leader = sortedDesc[0];
+  const { labels, values } = bucketTopN(entries, 8);
+
+  const pareto = paretoConcentration(
+    sortedDesc.map(([, v]) => v),
+    total
+  );
+  const concentrationPhrase =
+    pareto && sortedDesc.length >= 6 && pareto.count < sortedDesc.length
+      ? ` ${pareto.count} ${category.name.toLowerCase()}(s) sur ${sortedDesc.length} concentrent ${formatNumber(pareto.share * 100)} % du total.`
+      : "";
+
+  return {
+    kind: "bar",
+    title: `${metric.name} par ${category.name}`,
+    insight: leader
+      ? `"${leader[0]}" arrive en tête avec ${formatNumber(leader[1])} (${formatNumber(total ? (leader[1] / total) * 100 : 0)} % du total).${concentrationPhrase}`
+      : `Répartition de ${metric.name} par ${category.name}.`,
+    labels,
+    values,
+    seriesLabel: metric.name,
+  };
+}
+
+// Rule B (high-cardinality variant): with 20+ distinct values (client
+// lists, SKUs...) a bar chart is unreadable — a ranked table answers the
+// same "who/what matters most" question without the clutter.
+function buildRankingTable(listColumn: ColumnProfile, metric: ColumnProfile, rows: Record<string, unknown>[]): ChartSpec {
+  const entries = sumMetricByCategory(rows, listColumn.name, metric.name);
+  const sortedDesc = [...entries].sort((a, b) => b[1] - a[1]);
+  const total = sortedDesc.reduce((a, [, v]) => a + v, 0);
+  const top10 = sortedDesc.slice(0, 10);
+  const pareto = paretoConcentration(
+    sortedDesc.map(([, v]) => v),
+    total
+  );
+
+  return {
+    kind: "table",
+    title: `Top ${listColumn.name} par ${metric.name}`,
+    insight:
+      top10.length > 0
+        ? `"${top10[0][0]}" arrive en tête avec ${formatNumber(top10[0][1])} (${formatNumber(total ? (top10[0][1] / total) * 100 : 0)} % du total sur ${sortedDesc.length} valeurs distinctes).${
+            pareto && pareto.count < sortedDesc.length
+              ? ` ${pareto.count} valeur(s) sur ${sortedDesc.length} concentrent ${formatNumber(pareto.share * 100)} % du total.`
+              : ""
+          }`
+        : `Classement de ${metric.name} par ${listColumn.name}.`,
+    columns: [listColumn.name, `Total ${metric.name}`, "Part du total"],
+    rows: top10.map(([label, value]) => [label, formatNumber(value), `${formatNumber(total ? (value / total) * 100 : 0)} %`]),
+  };
+}
+
+// Rule C: a low-cardinality category with no metric to weigh it is a pure
+// composition question ("what share does each value represent?").
+function buildCompositionChart(category: ColumnProfile): ChartSpec {
+  const stats = category.stats as CategoricalStats;
+  const total = stats.count;
+  const { labels, values } = bucketTopN(
+    stats.top.map((t) => [t.label, t.count] as [string, number]),
+    7
+  );
+  return {
+    kind: "donut",
+    title: `Répartition par ${category.name}`,
+    insight: stats.top[0]
+      ? `"${stats.top[0].label}" est la valeur la plus fréquente (${formatNumber(stats.top[0].count)} occurrences, ${formatNumber(total ? (stats.top[0].count / total) * 100 : 0)} %).`
+      : `Répartition des valeurs de ${category.name}.`,
+    labels,
+    values,
+  };
+}
+
+function buildCountChart(category: ColumnProfile): ChartSpec {
+  const stats = category.stats as CategoricalStats;
+  const { labels, values } = bucketTopN(
+    stats.top.map((t) => [t.label, t.count] as [string, number]),
+    8
+  );
+  return {
+    kind: "bar",
+    title: `Répartition par ${category.name}`,
+    insight: stats.top[0]
+      ? `"${stats.top[0].label}" revient le plus souvent (${formatNumber(stats.top[0].count)} occurrences sur ${formatNumber(stats.count)}).`
+      : `Répartition des valeurs de ${category.name}.`,
+    labels,
+    values,
+    seriesLabel: "Nombre de lignes",
+  };
+}
+
+// Rule D: two categorical dimensions crossed with a metric reveal
+// interaction effects a single breakdown can't show (e.g. which
+// region×product combination actually drives revenue).
+function buildCrossTabHeatmap(
+  catA: ColumnProfile,
+  catB: ColumnProfile,
+  metric: ColumnProfile,
+  rows: Record<string, unknown>[]
+): ChartSpec | null {
+  const aStats = catA.stats as CategoricalStats;
+  const bStats = catB.stats as CategoricalStats;
+  if (aStats.uniqueCount > 6 || bStats.uniqueCount > 6) return null;
+
+  const rowLabels = aStats.top.map((t) => t.label);
+  const colLabels = bStats.top.map((t) => t.label);
+  const matrix = rowLabels.map(() => colLabels.map(() => 0));
+
+  for (const row of rows) {
+    const a = isBlank(row[catA.name]) ? null : String(row[catA.name]).trim();
+    const b = isBlank(row[catB.name]) ? null : String(row[catB.name]).trim();
+    const v = tryParseNumber(row[metric.name]);
+    if (a === null || b === null || v === null) continue;
+    const ri = rowLabels.indexOf(a);
+    const ci = colLabels.indexOf(b);
+    if (ri === -1 || ci === -1) continue;
+    matrix[ri][ci] += v;
+  }
+
+  let best = { value: -Infinity, r: 0, c: 0 };
+  for (let r = 0; r < matrix.length; r++) {
+    for (let c = 0; c < matrix[r].length; c++) {
+      if (matrix[r][c] > best.value) best = { value: matrix[r][c], r, c };
+    }
+  }
+
+  return {
+    kind: "heatmap",
+    title: `${metric.name} : ${catA.name} × ${catB.name}`,
+    insight:
+      best.value > -Infinity
+        ? `La combinaison "${rowLabels[best.r]}" × "${colLabels[best.c]}" génère le plus de ${metric.name} (${formatNumber(best.value)}).`
+        : `Croisement de ${catA.name} et ${catB.name}.`,
+    rowLabels,
+    colLabels,
+    matrix,
+    displayMatrix: matrix.map((r) => r.map((v) => formatShort(v))),
+    colorScale: "sequential",
+  };
+}
+
+// Rule E: with several numeric indicators, a correlation matrix surfaces
+// which ones move together — more useful than reporting a single pair.
+function buildCorrelationHeatmap(numericCols: ColumnProfile[], rows: Record<string, unknown>[]): ChartSpec | null {
+  const cols = [...numericCols].sort((a, b) => scoreMetricColumn(b) - scoreMetricColumn(a)).slice(0, 6);
+  if (cols.length < 3) return null;
+
+  const series = cols.map((c) => rows.map((r) => tryParseNumber(r[c.name])));
+  const matrix = cols.map((_, i) =>
+    cols.map((_, j) => {
+      if (i === j) return 1;
+      const a: number[] = [];
+      const b: number[] = [];
+      for (let k = 0; k < rows.length; k++) {
+        if (series[i][k] !== null && series[j][k] !== null) {
+          a.push(series[i][k] as number);
+          b.push(series[j][k] as number);
+        }
+      }
+      return pearson(a, b);
+    })
+  );
+
+  let best = { value: 0, i: 0, j: 1 };
+  for (let i = 0; i < cols.length; i++) {
+    for (let j = i + 1; j < cols.length; j++) {
+      if (Math.abs(matrix[i][j]) > Math.abs(best.value)) best = { value: matrix[i][j], i, j };
+    }
+  }
+  const direction = best.value > 0 ? "évoluent dans le même sens" : "évoluent en sens opposé";
+
+  return {
+    kind: "heatmap",
+    title: "Matrice de corrélation",
+    insight:
+      Math.abs(best.value) > 0.3
+        ? `"${cols[best.i].name}" et "${cols[best.j].name}" ont la corrélation la plus marquée (${formatNumber(best.value)}) : ils ${direction} (relation ${correlationStrength(best.value)}).`
+        : "Aucune corrélation forte n'a été détectée entre les indicateurs numériques.",
+    rowLabels: cols.map((c) => c.name),
+    colLabels: cols.map((c) => c.name),
+    matrix,
+    displayMatrix: matrix.map((r) => r.map((v) => formatNumber(v))),
+    colorScale: "diverging",
+  };
+}
+
+// Rule F: exactly two numeric indicators with a real correlation is best
+// shown as a scatter plot with a trend line, not a matrix of one cell.
+function buildScatterChart(colA: ColumnProfile, colB: ColumnProfile, coef: number, rows: Record<string, unknown>[]): ChartSpec {
+  const points: { x: number; y: number }[] = [];
+  for (const row of rows) {
+    const x = tryParseNumber(row[colA.name]);
+    const y = tryParseNumber(row[colB.name]);
+    if (x !== null && y !== null) points.push({ x, y });
+  }
+  const direction = coef > 0 ? "augmente" : "diminue";
+  return {
+    kind: "scatter",
+    title: `${colA.name} vs ${colB.name}`,
+    insight: `Quand ${colA.name} augmente, ${colB.name} a tendance à ${direction} (corrélation ${correlationStrength(coef)}, coefficient de ${formatNumber(coef)}).`,
+    xLabel: colA.name,
+    yLabel: colB.name,
+    points: points.slice(0, 500),
+  };
+}
+
+// Rule G: the distribution of the primary metric — always relevant, shown
+// last since ranking/trend answer the more pressing "so what" questions
+// first. Extreme outliers are excluded from the binning range (but counted)
+// so a handful of them don't compress every other bar into nothing.
+function buildDistributionChart(metric: ColumnProfile, rows: Record<string, unknown>[]): ChartSpec {
+  const stats = metric.stats as NumericStats;
+  const iqr = stats.q3 - stats.q1;
+  const lowerFence = Math.max(stats.min, stats.q1 - 1.5 * iqr);
+  const upperFence = Math.min(stats.max, stats.q3 + 1.5 * iqr);
+  const bins = 6;
+  const range = upperFence - lowerFence || 1;
+  const binSize = range / bins;
+  const counts = new Array(bins).fill(0);
+  const values = rows.map((r) => tryParseNumber(r[metric.name])).filter((v): v is number => v !== null);
+  let excluded = 0;
+  for (const v of values) {
+    if (v < lowerFence || v > upperFence) {
+      excluded++;
+      continue;
+    }
+    const idx = Math.min(bins - 1, Math.floor((v - lowerFence) / binSize));
+    counts[idx]++;
+  }
+  const labels = new Array(bins).fill(0).map((_, i) => {
+    const lo = lowerFence + i * binSize;
+    const hi = lowerFence + (i + 1) * binSize;
+    return `${formatShort(lo)}-${formatShort(hi)}`;
+  });
+  return {
+    kind: "bar",
+    title: `Distribution de ${metric.name}`,
+    insight: `La majorité des valeurs de ${metric.name} se situe entre ${formatNumber(stats.q1)} et ${formatNumber(stats.q3)}${excluded > 0 ? ` (${excluded} valeur(s) extrême(s) exclue(s) de ce graphique pour plus de lisibilité)` : ""}.`,
+    labels,
+    values: counts,
+    seriesLabel: "Nombre de lignes",
+  };
+}
+
+// Rule H: nothing to chart at all (no usable metric, category, or date) —
+// don't force a graphic that wouldn't mean anything; show the raw rows.
+function buildRawPreviewTable(columns: ColumnProfile[], rows: Record<string, unknown>[]): ChartSpec {
+  const shownCols = columns.slice(0, 6);
+  return {
+    kind: "table",
+    title: "Aperçu des données",
+    insight: `Aucun indicateur numérique ou regroupement clair n'a été détecté : voici un aperçu des ${Math.min(10, rows.length)} premières lignes.`,
+    columns: shownCols.map((c) => c.name),
+    rows: rows.slice(0, 10).map((row) => shownCols.map((c) => (isBlank(row[c.name]) ? "—" : String(row[c.name])))),
+  };
+}
+
+function selectVisualizations(
   columns: ColumnProfile[],
+  numericCols: ColumnProfile[],
   keyMetrics: ColumnProfile[],
   primaryCategory: ColumnProfile | null,
   secondaryCategory: ColumnProfile | null,
+  listColumn: ColumnProfile | null,
   primaryDate: ColumnProfile | null,
+  topCorrelation: CorrelationInsight | null,
   rows: Record<string, unknown>[]
 ): ChartSpec[] {
   const charts: ChartSpec[] = [];
   const metric = keyMetrics[0] ?? null;
+  // Below this sample size, a cross-tab or a correlation coefficient reads
+  // as far more confident than it is (e.g. r=1 from 5 points is noise, not
+  // a relationship) — skip these "relational" visuals rather than overstate
+  // a pattern the data can't actually support.
+  const MIN_ROWS_FOR_RELATIONAL_CHARTS = 15;
+  const hasEnoughRows = rows.length >= MIN_ROWS_FOR_RELATIONAL_CHARTS;
 
-  if (primaryDate && metric) {
-    const dateValues = rows.map((r) => tryParseDate(r[primaryDate.name]));
-    const metricValues = rows.map((r) => tryParseNumber(r[metric.name]));
-    const monthly = new Map<string, number>();
-    for (let i = 0; i < rows.length; i++) {
-      const d = dateValues[i];
-      const v = metricValues[i];
-      if (!d || v === null) continue;
-      const label = `${MONTH_LABELS_FR[d.getMonth()]} ${d.getFullYear()}`;
-      monthly.set(label, (monthly.get(label) ?? 0) + v);
-    }
-    const sorted = [...monthly.entries()].sort((a, b) => sortKeyFromLabel(a[0]) - sortKeyFromLabel(b[0]));
-    if (sorted.length >= 2) {
-      const series = sorted.map(([, v]) => v);
-      const segment = Math.max(1, Math.round(series.length * 0.25));
-      const firstAvg = mean(series.slice(0, segment));
-      const lastAvg = mean(series.slice(-segment));
-      const change = firstAvg !== 0 ? ((lastAvg - firstAvg) / Math.abs(firstAvg)) * 100 : 0;
-      const trendWord = change > 10 ? "en hausse" : change < -10 ? "en baisse" : "globalement stable";
-      charts.push({
-        kind: "line",
-        title: `Évolution de ${metric.name} dans le temps`,
-        insight: `${metric.name} est ${trendWord} sur la période (${change >= 0 ? "+" : ""}${formatNumber(change)} % entre le début et la fin de la période observée).`,
-        labels: sorted.map(([label]) => label),
-        values: sorted.map(([, v]) => v),
-        seriesLabel: metric.name,
-      });
-    }
-  }
-
-  if (primaryCategory) {
-    const catStats = primaryCategory.stats as CategoricalStats;
-    if (metric) {
-      const metricValues = rows.map((r) => tryParseNumber(r[metric.name]));
-      const catValues = rows.map((r) => (isBlank(r[primaryCategory.name]) ? null : String(r[primaryCategory.name]).trim()));
-      const sums = new Map<string, number>();
-      for (let i = 0; i < rows.length; i++) {
-        const c = catValues[i];
-        const v = metricValues[i];
-        if (c === null || v === null) continue;
-        sums.set(c, (sums.get(c) ?? 0) + v);
-      }
-      const sorted = [...sums.entries()].sort((a, b) => b[1] - a[1]);
-      const top = sorted.slice(0, 8);
-      const total = sorted.reduce((a, [, v]) => a + v, 0);
-      const leader = top[0];
-      charts.push({
-        kind: "bar",
-        title: `${metric.name} par ${primaryCategory.name}`,
-        insight: leader
-          ? `"${leader[0]}" arrive en tête avec ${formatNumber(leader[1])} (${formatNumber(total ? (leader[1] / total) * 100 : 0)} % du total pour ${primaryCategory.name}).`
-          : `Répartition de ${metric.name} par ${primaryCategory.name}.`,
-        labels: top.map(([label]) => label),
-        values: top.map(([, v]) => v),
-        seriesLabel: metric.name,
-      });
-    } else {
-      const top = catStats.top.slice(0, 8);
-      const total = catStats.count;
-      charts.push({
-        kind: "donut",
-        title: `Répartition par ${primaryCategory.name}`,
-        insight: top[0]
-          ? `"${top[0].label}" est la valeur la plus fréquente (${formatNumber(top[0].count)} occurrences, ${formatNumber(total ? (top[0].count / total) * 100 : 0)} %).`
-          : `Répartition des valeurs de ${primaryCategory.name}.`,
-        labels: top.map((t) => t.label),
-        values: top.map((t) => t.count),
-      });
-
-      if (secondaryCategory) {
-        const secStats = secondaryCategory.stats as CategoricalStats;
-        const secTop = secStats.top.slice(0, 8);
-        charts.push({
-          kind: "bar",
-          title: `Répartition par ${secondaryCategory.name}`,
-          insight: secTop[0]
-            ? `"${secTop[0].label}" revient le plus souvent (${formatNumber(secTop[0].count)} occurrences sur ${formatNumber(secStats.count)}).`
-            : `Répartition des valeurs de ${secondaryCategory.name}.`,
-          labels: secTop.map((t) => t.label),
-          values: secTop.map((t) => t.count),
-          seriesLabel: "Nombre de lignes",
-        });
-      }
-    }
-  }
+  const trend = buildTrendChart(primaryDate, metric, rows);
+  if (trend) charts.push(trend);
 
   if (metric) {
-    const stats = metric.stats as NumericStats;
-    const iqr = stats.q3 - stats.q1;
-    const lowerFence = Math.max(stats.min, stats.q1 - 1.5 * iqr);
-    const upperFence = Math.min(stats.max, stats.q3 + 1.5 * iqr);
-    const bins = 6;
-    const range = upperFence - lowerFence || 1;
-    const binSize = range / bins;
-    const counts = new Array(bins).fill(0);
-    const values = rows.map((r) => tryParseNumber(r[metric.name])).filter((v): v is number => v !== null);
-    let excluded = 0;
-    for (const v of values) {
-      if (v < lowerFence || v > upperFence) {
-        excluded++;
-        continue;
-      }
-      const idx = Math.min(bins - 1, Math.floor((v - lowerFence) / binSize));
-      counts[idx]++;
+    if (primaryCategory) charts.push(buildCategoryRankingChart(primaryCategory, metric, rows));
+    else if (listColumn) charts.push(buildRankingTable(listColumn, metric, rows));
+
+    if (primaryCategory && secondaryCategory && hasEnoughRows) {
+      const crossTab = buildCrossTabHeatmap(primaryCategory, secondaryCategory, metric, rows);
+      if (crossTab) charts.push(crossTab);
     }
-    const labels = new Array(bins).fill(0).map((_, i) => {
-      const lo = lowerFence + i * binSize;
-      const hi = lowerFence + (i + 1) * binSize;
-      return `${formatShort(lo)}-${formatShort(hi)}`;
-    });
-    charts.push({
-      kind: "bar",
-      title: `Distribution de ${metric.name}`,
-      insight: `La majorité des valeurs de ${metric.name} se situe entre ${formatNumber(stats.q1)} et ${formatNumber(stats.q3)}${excluded > 0 ? ` (${excluded} valeur(s) extrême(s) exclue(s) de ce graphique pour plus de lisibilité)` : ""}.`,
-      labels,
-      values: counts,
-      seriesLabel: "Nombre de lignes",
-    });
+  } else if (primaryCategory) {
+    charts.push(buildCompositionChart(primaryCategory));
+    if (secondaryCategory) charts.push(buildCountChart(secondaryCategory));
   }
 
-  return charts.slice(0, 4);
+  if (hasEnoughRows && numericCols.length >= 3) {
+    const corrMatrix = buildCorrelationHeatmap(numericCols, rows);
+    if (corrMatrix) charts.push(corrMatrix);
+  } else if (hasEnoughRows && numericCols.length === 2 && topCorrelation) {
+    const [colA, colB] = numericCols;
+    charts.push(buildScatterChart(colA, colB, topCorrelation.coefficient, rows));
+  }
+
+  if (metric) charts.push(buildDistributionChart(metric, rows));
+
+  if (charts.length === 0) charts.push(buildRawPreviewTable(columns, rows));
+
+  return charts.slice(0, 5);
 }
 
 function buildNarrative(
@@ -596,13 +878,22 @@ export async function analyzeWorkbook(buffer: Buffer, fileName: string): Promise
   }
 
   const numericCols = columns.filter((c) => c.type === "numeric" && !c.isIdLike);
-  const keyMetrics = [...numericCols].sort((a, b) => scoreMetricColumn(b) - scoreMetricColumn(a)).slice(0, 3);
+  const keyMetrics = [...numericCols]
+    .sort((a, b) => scoreMetricColumn(b) - scoreMetricColumn(a))
+    .filter((c) => scoreMetricColumn(c) > -Infinity)
+    .slice(0, 3);
 
   const categoricalCols = [...columns.filter((c) => c.type === "categorical" && !c.isIdLike)].sort(
     (a, b) => scoreCategoryColumn(b) - scoreCategoryColumn(a)
   );
-  const primaryCategory = categoricalCols[0] ?? null;
+  const primaryCategory = categoricalCols[0] && scoreCategoryColumn(categoricalCols[0]) > -Infinity ? categoricalCols[0] : null;
   const secondaryCategory = categoricalCols[1] && scoreCategoryColumn(categoricalCols[1]) > -Infinity ? categoricalCols[1] : null;
+
+  const listColumn =
+    [...columns.filter((c) => c.type === "categorical" && !c.isIdLike)].sort(
+      (a, b) => scoreListColumn(b) - scoreListColumn(a)
+    )[0] ?? null;
+  const validListColumn = listColumn && scoreListColumn(listColumn) > -Infinity ? listColumn : null;
 
   const dateCols = columns.filter((c) => c.type === "date");
   const primaryDate = dateCols[0] ?? null;
@@ -623,7 +914,17 @@ export async function analyzeWorkbook(buffer: Buffer, fileName: string): Promise
   correlations.sort((a, b) => Math.abs(b.coefficient) - Math.abs(a.coefficient));
 
   const datasetTopic = guessDatasetTopic(headers);
-  const charts = buildCharts(columns, keyMetrics, primaryCategory, secondaryCategory, primaryDate, rows);
+  const charts = selectVisualizations(
+    columns,
+    numericCols,
+    keyMetrics,
+    primaryCategory,
+    secondaryCategory,
+    validListColumn,
+    primaryDate,
+    correlations[0] ?? null,
+    rows
+  );
   const { narrative, recommendations } = buildNarrative(
     fileName,
     rows.length,

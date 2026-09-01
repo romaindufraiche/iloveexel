@@ -63,14 +63,55 @@ export interface CorrelationInsight {
   coefficient: number;
 }
 
-export interface ChartSpec {
-  kind: "bar" | "line" | "donut";
+export interface BarLineChart {
+  kind: "bar" | "line";
   title: string;
   insight: string;
   labels: string[];
   values: number[];
   seriesLabel?: string;
 }
+
+export interface DonutChart {
+  kind: "donut";
+  title: string;
+  insight: string;
+  labels: string[];
+  values: number[];
+}
+
+export interface ScatterChart {
+  kind: "scatter";
+  title: string;
+  insight: string;
+  xLabel: string;
+  yLabel: string;
+  points: { x: number; y: number }[];
+}
+
+export interface HeatmapChart {
+  kind: "heatmap";
+  title: string;
+  insight: string;
+  rowLabels: string[];
+  colLabels: string[];
+  matrix: number[][];
+  // Text shown in each cell, pre-formatted (same shape as matrix).
+  displayMatrix: string[][];
+  // "diverging" for correlation matrices (-1..1, red/green), "sequential"
+  // for magnitude cross-tabs (0..max, single hue).
+  colorScale: "diverging" | "sequential";
+}
+
+export interface TableChart {
+  kind: "table";
+  title: string;
+  insight: string;
+  columns: string[];
+  rows: string[][];
+}
+
+export type ChartSpec = BarLineChart | DonutChart | ScatterChart | HeatmapChart | TableChart;
 
 export interface AnalysisResult {
   fileName: string;
