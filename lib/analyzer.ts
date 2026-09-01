@@ -1039,17 +1039,19 @@ function buildNarrative(
   return { narrative, recommendations };
 }
 
-export async function analyzeWorkbook(buffer: Buffer, fileName: string): Promise<AnalysisResult> {
+interface ParsedTable {
+  sheetName: string;
+  rows: Record<string, unknown>[];
+  headers: string[];
+  excludedTotalRowCount: number;
+}
+
+// Picks whichever sheet actually yields a usable table — not just the
+// first non-empty one, since a workbook's first tab is sometimes a cover
+// page or an instructions sheet with only a couple of stray cells.
+function parseBestTable(buffer: Buffer): ParsedTable {
   const workbook = XLSX.read(buffer, { type: "buffer", cellDates: true });
 
-  let sheetName = "";
-  let rows: Record<string, unknown>[] = [];
-  let headers: string[] = [];
-  let excludedTotalRowCount = 0;
-
-  // Pick whichever sheet actually yields a usable table — not just the
-  // first non-empty one, since a workbook's first tab is sometimes a cover
-  // page or an instructions sheet with only a couple of stray cells.
   let bestTable: ExtractedTable | null = null;
   let bestSheetName = "";
   for (const name of workbook.SheetNames) {
@@ -1060,20 +1062,21 @@ export async function analyzeWorkbook(buffer: Buffer, fileName: string): Promise
     }
   }
 
-  if (bestTable) {
-    sheetName = bestSheetName;
-    rows = bestTable.rows;
-    headers = bestTable.headers;
-    excludedTotalRowCount = bestTable.excludedTotalRowCount;
-  }
-
-  if (rows.length === 0) {
+  if (!bestTable) {
     throw new Error("Aucune donnée exploitable n'a été trouvée dans ce fichier Excel.");
   }
 
-  const rawColumns = extractColumns(rows, headers);
+  return {
+    sheetName: bestSheetName,
+    rows: bestTable.rows,
+    headers: bestTable.headers,
+    excludedTotalRowCount: bestTable.excludedTotalRowCount,
+  };
+}
 
-  const columns: ColumnProfile[] = rawColumns.map(({ name, values }) => {
+function profileColumns(rows: Record<string, unknown>[], headers: string[]): ColumnProfile[] {
+  const rawColumns = extractColumns(rows, headers);
+  return rawColumns.map(({ name, values }) => {
     const type = inferColumnType(values);
     const idLike = isIdLike(name, values, type);
     return {
@@ -1083,6 +1086,16 @@ export async function analyzeWorkbook(buffer: Buffer, fileName: string): Promise
       stats: computeStats(type, values),
     };
   });
+}
+
+export async function analyzeWorkbook(buffer: Buffer, fileName: string): Promise<AnalysisResult> {
+  const { sheetName, rows, headers, excludedTotalRowCount } = parseBestTable(buffer);
+
+  if (rows.length === 0) {
+    throw new Error("Aucune donnée exploitable n'a été trouvée dans ce fichier Excel.");
+  }
+
+  const columns: ColumnProfile[] = profileColumns(rows, headers);
 
   const seenRows = new Set<string>();
   let duplicateRowCount = 0;
@@ -1182,4 +1195,173 @@ export async function analyzeWorkbook(buffer: Buffer, fileName: string): Promise
     recommendations,
     generatedAt: new Date(),
   };
+}
+
+const QUERY_STOPWORDS = new Set([
+  "je",
+  "tu",
+  "il",
+  "elle",
+  "nous",
+  "vous",
+  "ils",
+  "elles",
+  "on",
+  "veux",
+  "voudrais",
+  "aimerais",
+  "souhaite",
+  "souhaiterais",
+  "peux",
+  "peut",
+  "pourrais",
+  "pourrait",
+  "voudrait",
+  "que",
+  "qui",
+  "quoi",
+  "comment",
+  "pourquoi",
+  "un",
+  "une",
+  "des",
+  "le",
+  "la",
+  "les",
+  "du",
+  "de",
+  "d",
+  "au",
+  "aux",
+  "en",
+  "avec",
+  "sans",
+  "pour",
+  "par",
+  "sur",
+  "dans",
+  "entre",
+  "vers",
+  "et",
+  "ou",
+  "mais",
+  "donc",
+  "affiche",
+  "afficher",
+  "montre",
+  "montrer",
+  "montrez",
+  "genere",
+  "generer",
+  "generez",
+  "creer",
+  "cree",
+  "voir",
+  "graphe",
+  "graphique",
+  "chart",
+  "diagramme",
+  "ce",
+  "cet",
+  "cette",
+  "ces",
+  "est",
+  "sont",
+  "c",
+  "stp",
+  "svp",
+  "merci",
+]);
+
+function normalizeToken(s: string): string {
+  return s
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase();
+}
+
+function tokenizeQuery(text: string): string[] {
+  return normalizeToken(text)
+    .replace(/[^a-z0-9\s]/g, " ")
+    .split(/\s+/)
+    .filter((t) => t.length > 1 && !QUERY_STOPWORDS.has(t));
+}
+
+function tokenizeColumnName(name: string): string[] {
+  return normalizeToken(name)
+    .replace(/[_-]/g, " ")
+    .split(/\s+/)
+    .filter(Boolean);
+}
+
+function scoreColumnAgainstTokens(columnName: string, tokens: string[]): number {
+  const colTokens = tokenizeColumnName(columnName);
+  let score = 0;
+  for (const t of tokens) {
+    for (const ct of colTokens) {
+      if (ct === t) score += 3;
+      else if (ct.length > 3 && t.length > 3 && (ct.includes(t) || t.includes(ct))) score += 1.5;
+    }
+  }
+  return score;
+}
+
+function bestScoredColumn(candidates: ColumnProfile[], tokens: string[]): ColumnProfile | null {
+  const scored = candidates
+    .map((col) => ({ col, score: scoreColumnAgainstTokens(col.name, tokens) }))
+    .sort((a, b) => b.score - a.score);
+  return scored.length > 0 && scored[0].score > 0 ? scored[0].col : null;
+}
+
+export interface ChartQueryResult {
+  chart: ChartSpec | null;
+  message: string;
+}
+
+const TREND_KEYWORDS = /\b(evolution|tendance|temps|mois|annee|jour|periode|historique)\b/;
+
+// Powers the editor's "je veux un graphe avec..." search bar. This is a
+// zero-cost heuristic (word-overlap matching against the file's own column
+// names), not a real LLM — it fuzzy-matches the request's words to find the
+// most plausible metric/category/date column, then reuses the same chart
+// builders as the automatic analysis. Good enough for "the value I expected
+// isn't there yet, go get it" requests; genuinely free-form phrasing would
+// need a real language model wired in behind this same function signature.
+export async function answerChartQuery(buffer: Buffer, prompt: string): Promise<ChartQueryResult> {
+  const { rows, headers } = parseBestTable(buffer);
+  const columns = profileColumns(rows, headers);
+  const tokens = tokenizeQuery(prompt);
+
+  if (tokens.length === 0) {
+    return { chart: null, message: 'Précisez votre demande, par exemple : "le montant total par région".' };
+  }
+
+  const numericCols = columns.filter((c) => c.type === "numeric" && !c.isIdLike);
+  const categoricalCols = columns.filter((c) => c.type === "categorical" && !c.isIdLike);
+  const dateCols = columns.filter((c) => c.type === "date");
+
+  const metric = bestScoredColumn(numericCols, tokens) ?? (numericCols.length > 0 ? [...numericCols].sort((a, b) => scoreMetricColumn(b) - scoreMetricColumn(a))[0] : null);
+  const category = bestScoredColumn(categoricalCols, tokens);
+  const dateCol = bestScoredColumn(dateCols, tokens) ?? dateCols[0] ?? null;
+  const wantsTrend = TREND_KEYWORDS.test(tokens.join(" "));
+
+  if (!metric && !category) {
+    return {
+      chart: null,
+      message: "Aucune colonne de votre fichier ne correspond à cette demande. Essayez avec un terme qui apparaît dans vos en-têtes de colonnes.",
+    };
+  }
+
+  let chart: ChartSpec | null = null;
+  if (wantsTrend && dateCol && metric) chart = buildTrendChart(dateCol, metric, rows);
+  if (!chart && metric && category) chart = buildCategoryRankingChart(category, metric, rows);
+  if (!chart && category) chart = buildCompositionChart(category);
+  if (!chart && metric) chart = buildDistributionChart(metric, rows);
+
+  if (!chart) {
+    return { chart: null, message: "Je n'ai pas réussi à générer un graphique pertinent à partir de cette demande." };
+  }
+
+  const matchedNames = [metric?.name, category?.name, wantsTrend ? dateCol?.name : null].filter(Boolean).join(" × ");
+  return { chart, message: `Généré à partir de : ${matchedNames}.` };
 }

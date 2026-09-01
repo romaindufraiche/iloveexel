@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import PremiumModal from "./PremiumModal";
+import ReportEditor, { type EditorAnalysis } from "./ReportEditor";
 
 type Status = "idle" | "dragging" | "uploading" | "success" | "error" | "limit";
 type ExportFormat = "pdf" | "pptx" | "png";
@@ -34,22 +35,11 @@ export default function UploadCard() {
   const [downloadUrl, setDownloadUrl] = useState<string>("");
   const [downloadName, setDownloadName] = useState<string>("");
   const [format, setFormat] = useState<ExportFormat>("pdf");
-  const [quota, setQuota] = useState<{ remaining: number; limit: number } | null>(null);
   const [showPremiumModal, setShowPremiumModal] = useState(false);
+  const [lastFile, setLastFile] = useState<File | null>(null);
+  const [editorAnalysis, setEditorAnalysis] = useState<EditorAnalysis | null>(null);
+  const [editorLoading, setEditorLoading] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    fetch("/api/quota")
-      .then((res) => res.json())
-      .then((data) => {
-        if (!cancelled && typeof data?.remaining === "number") setQuota(data);
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   const reset = useCallback(() => {
     setStatus("idle");
@@ -58,6 +48,7 @@ export default function UploadCard() {
     setErrorMessage("");
     setDownloadUrl("");
     setDownloadName("");
+    setEditorAnalysis(null);
   }, []);
 
   const uploadFile = useCallback(
@@ -72,11 +63,8 @@ export default function UploadCard() {
         setErrorMessage(`Le fichier dépasse la taille maximale autorisée (${MAX_SIZE_MB} Mo).`);
         return;
       }
-      if (quota && quota.remaining <= 0) {
-        setStatus("limit");
-        return;
-      }
 
+      setLastFile(file);
       setFileName(file.name);
       setStatus("uploading");
       setProgress(0);
@@ -96,12 +84,6 @@ export default function UploadCard() {
       };
 
       xhr.onload = async () => {
-        const remainingHeader = xhr.getResponseHeader("X-RateLimit-Remaining");
-        const limitHeader = xhr.getResponseHeader("X-RateLimit-Limit");
-        if (remainingHeader !== null && limitHeader !== null) {
-          setQuota({ remaining: Number(remainingHeader), limit: Number(limitHeader) });
-        }
-
         if (xhr.status === 200) {
           const blob = xhr.response as Blob;
           const url = URL.createObjectURL(blob);
@@ -139,8 +121,31 @@ export default function UploadCard() {
 
       xhr.send(formData);
     },
-    [format, quota]
+    [format]
   );
+
+  const openEditor = useCallback(async () => {
+    if (!lastFile) return;
+    setEditorLoading(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", lastFile);
+      formData.append("format", "json");
+      const res = await fetch("/api/analyze", { method: "POST", body: formData });
+      const data = await res.json();
+      if (!res.ok) {
+        setStatus("error");
+        setErrorMessage(data?.error || "Impossible d'ouvrir l'éditeur pour ce fichier.");
+        return;
+      }
+      setEditorAnalysis(data as EditorAnalysis);
+    } catch {
+      setStatus("error");
+      setErrorMessage("Impossible de contacter le serveur.");
+    } finally {
+      setEditorLoading(false);
+    }
+  }, [lastFile]);
 
   const onDrop = useCallback(
     (event: React.DragEvent<HTMLDivElement>) => {
@@ -171,6 +176,20 @@ export default function UploadCard() {
   );
 
   const showFormatPicker = status === "idle" || status === "dragging";
+
+  if (editorAnalysis && lastFile) {
+    return (
+      <>
+        <ReportEditor
+          analysis={editorAnalysis}
+          file={lastFile}
+          onRequestDownload={() => setShowPremiumModal(true)}
+          onClose={() => setEditorAnalysis(null)}
+        />
+        {showPremiumModal ? <PremiumModal onClose={() => setShowPremiumModal(false)} /> : null}
+      </>
+    );
+  }
 
   return (
     <div className="w-full max-w-xl mx-auto">
@@ -256,14 +275,11 @@ export default function UploadCard() {
               </a>
               <button
                 type="button"
-                onClick={() => setShowPremiumModal(true)}
-                className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-full border border-gray-200 px-6 py-3 text-sm font-semibold text-gray-700 transition hover:border-brand-300 hover:text-brand-700"
+                onClick={openEditor}
+                disabled={editorLoading}
+                className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-full border border-gray-200 px-6 py-3 text-sm font-semibold text-gray-700 transition hover:border-brand-300 hover:text-brand-700 disabled:opacity-60"
               >
-                <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2}>
-                  <rect x="5" y="11" width="14" height="9" rx="2" strokeLinecap="round" strokeLinejoin="round" />
-                  <path d="M8 11V7a4 4 0 018 0v4" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
-                Modifier
+                {editorLoading ? "Ouverture…" : "Modifier"}
               </button>
             </div>
             <button type="button" onClick={reset} className="mt-4 block w-full text-sm font-medium text-gray-500 hover:text-brand-700">
@@ -304,8 +320,8 @@ export default function UploadCard() {
             </div>
             <p className="text-lg font-semibold text-gray-800">Limite gratuite atteinte pour aujourd&apos;hui</p>
             <p className="mt-1 text-sm text-gray-500">
-              Vous avez utilisé vos {quota?.limit ?? 5} analyses gratuites du jour. Revenez demain, ou passez à SheetInsight Premium
-              pour des analyses illimitées.
+              Vous avez utilisé vos analyses gratuites du jour. Revenez demain, ou passez à SheetInsight Premium pour des analyses
+              illimitées.
             </p>
             <a
               href="#premium"
@@ -333,19 +349,6 @@ export default function UploadCard() {
             </button>
           ))}
         </div>
-      ) : null}
-
-      {quota && (status === "idle" || status === "dragging") ? (
-        <p className="mt-3 text-center text-xs text-gray-500">
-          {quota.remaining > 0 ? (
-            <>
-              <span className="font-semibold text-brand-700">{quota.remaining}</span> analyse{quota.remaining > 1 ? "s" : ""} gratuite
-              {quota.remaining > 1 ? "s" : ""} restante{quota.remaining > 1 ? "s" : ""} aujourd&apos;hui
-            </>
-          ) : (
-            "Limite gratuite atteinte pour aujourd'hui"
-          )}
-        </p>
       ) : null}
 
       {showPremiumModal ? <PremiumModal onClose={() => setShowPremiumModal(false)} /> : null}

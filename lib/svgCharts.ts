@@ -1,5 +1,17 @@
 const PALETTE = ["#0fa968", "#2563eb", "#f59e0b", "#ef4444", "#8b5cf6", "#06b6d4", "#ec4899", "#84cc16"];
 
+export { PALETTE };
+
+// A few curated alternate palettes offered in the chart editor's color
+// picker, all built by rotating the same 8 hues so any chart kind (bar,
+// donut...) still gets 8 distinguishable colors.
+export const PALETTE_PRESETS: { name: string; colors: string[] }[] = [
+  { name: "Vert", colors: PALETTE },
+  { name: "Bleu", colors: ["#2563eb", "#0fa968", "#f59e0b", "#ef4444", "#8b5cf6", "#06b6d4", "#ec4899", "#84cc16"] },
+  { name: "Violet", colors: ["#8b5cf6", "#ec4899", "#0fa968", "#2563eb", "#f59e0b", "#ef4444", "#06b6d4", "#84cc16"] },
+  { name: "Contrasté", colors: ["#111827", "#ef4444", "#f59e0b", "#0fa968", "#2563eb", "#8b5cf6", "#ec4899", "#06b6d4"] },
+];
+
 export const CHART_WIDTH = 520;
 export const CHART_HEIGHT = 300;
 
@@ -66,7 +78,7 @@ function niceMax(value: number): number {
   return step * magnitude;
 }
 
-export function barChart(labels: string[], values: number[], seriesLabel = ""): string {
+export function barChart(labels: string[], values: number[], seriesLabel = "", palette: string[] = PALETTE): string {
   const marginLeft = 56;
   const marginRight = 20;
   const marginTop = 24;
@@ -93,7 +105,7 @@ export function barChart(labels: string[], values: number[], seriesLabel = ""): 
     const x = marginLeft + i * barGap + (barGap - barWidth) / 2;
     const barHeight = (value / maxValue) * plotHeight;
     const y = marginTop + plotHeight - barHeight;
-    const color = PALETTE[i % PALETTE.length];
+    const color = palette[i % palette.length];
     barsSvg += `<rect x="${x}" y="${y}" width="${barWidth}" height="${Math.max(barHeight, 0.5)}" rx="3" fill="${color}" />`;
     barsSvg += `<text x="${x + barWidth / 2}" y="${y - 6}" font-size="10" fill="#111827" text-anchor="middle" font-family="Helvetica">${escapeXml(
       formatShort(value)
@@ -113,7 +125,7 @@ export function barChart(labels: string[], values: number[], seriesLabel = ""): 
   </svg>`;
 }
 
-export function lineChart(labels: string[], values: number[], seriesLabel = ""): string {
+export function lineChart(labels: string[], values: number[], seriesLabel = "", accentColor = "#0a8a54"): string {
   const marginLeft = 56;
   const marginRight = 20;
   const marginTop = 24;
@@ -149,7 +161,7 @@ export function lineChart(labels: string[], values: number[], seriesLabel = ""):
 
   let pointsSvg = "";
   points.forEach((p, i) => {
-    pointsSvg += `<circle cx="${p.x}" cy="${p.y}" r="3.5" fill="#0a8a54" />`;
+    pointsSvg += `<circle cx="${p.x}" cy="${p.y}" r="3.5" fill="${accentColor}" />`;
     if (i % Math.ceil(points.length / 8 || 1) === 0 || i === points.length - 1) {
       const labelY = marginTop + plotHeight + 16;
       pointsSvg += `<text x="${p.x}" y="${labelY}" font-size="9.5" fill="#374151" text-anchor="middle" font-family="Helvetica" transform="rotate(20 ${p.x} ${labelY})">${escapeXml(
@@ -161,14 +173,14 @@ export function lineChart(labels: string[], values: number[], seriesLabel = ""):
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${CHART_WIDTH}" height="${CHART_HEIGHT}" viewBox="0 0 ${CHART_WIDTH} ${CHART_HEIGHT}">
     <rect x="0" y="0" width="${CHART_WIDTH}" height="${CHART_HEIGHT}" fill="#ffffff" />
     ${gridSvg}
-    <path d="${areaD}" fill="#0fa968" fill-opacity="0.12" stroke="none" />
-    <path d="${pathD}" fill="none" stroke="#0a8a54" stroke-width="2.5" />
+    <path d="${areaD}" fill="${accentColor}" fill-opacity="0.12" stroke="none" />
+    <path d="${pathD}" fill="none" stroke="${accentColor}" stroke-width="2.5" />
     ${pointsSvg}
     <line x1="${marginLeft}" y1="${marginTop + plotHeight}" x2="${CHART_WIDTH - marginRight}" y2="${marginTop + plotHeight}" stroke="#9ca3af" stroke-width="1" />
   </svg>`;
 }
 
-export function donutChart(labels: string[], values: number[]): string {
+export function donutChart(labels: string[], values: number[], palette: string[] = PALETTE): string {
   const cx = 150;
   const cy = CHART_HEIGHT / 2;
   const rOuter = 100;
@@ -180,7 +192,7 @@ export function donutChart(labels: string[], values: number[]): string {
   const segments = values.map((v, i) => {
     const fraction = v / total;
     const angleEnd = angleStart + fraction * Math.PI * 2;
-    const seg = { angleStart, angleEnd, color: PALETTE[i % PALETTE.length] };
+    const seg = { angleStart, angleEnd, color: palette[i % palette.length] };
     angleStart = angleEnd;
     return seg;
   });
@@ -207,7 +219,7 @@ export function donutChart(labels: string[], values: number[]): string {
   labels.forEach((label, i) => {
     const y = 40 + i * 24;
     const pct = ((values[i] / total) * 100).toFixed(1);
-    legendSvg += `<rect x="${legendX}" y="${y - 10}" width="12" height="12" rx="2" fill="${PALETTE[i % PALETTE.length]}" />`;
+    legendSvg += `<rect x="${legendX}" y="${y - 10}" width="12" height="12" rx="2" fill="${palette[i % palette.length]}" />`;
     legendSvg += `<text x="${legendX + 18}" y="${y}" font-size="11" fill="#111827" font-family="Helvetica">${escapeXml(
       truncate(label, 20)
     )} (${pct}%)</text>`;

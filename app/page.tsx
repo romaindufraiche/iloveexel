@@ -120,7 +120,7 @@ export default function HomePage() {
         <div className="mx-auto max-w-4xl px-6">
           <h2 className="text-center text-2xl font-bold text-gray-900">Gratuit pour commencer, Premium pour aller plus loin</h2>
           <p className="mx-auto mt-3 max-w-xl text-center text-sm text-gray-600">
-            Le moteur d&apos;analyse est le même pour tout le monde. Premium débloque le volume et la personnalisation.
+            Le moteur d&apos;analyse et la personnalisation des rapports sont les mêmes pour tout le monde. Premium débloque le volume et le téléchargement illimité.
           </p>
 
           <div className="mt-10 grid gap-6 sm:grid-cols-2">
@@ -131,7 +131,10 @@ export default function HomePage() {
               </p>
               <ul className="mt-6 space-y-3 text-sm text-gray-700">
                 <li className="flex items-center gap-2">
-                  <CheckIcon /> 5 analyses par jour
+                  <CheckIcon /> 5 téléchargements par jour
+                </li>
+                <li className="flex items-center gap-2">
+                  <CheckIcon /> Personnalisez vos graphiques : type, couleurs, texte
                 </li>
                 <li className="flex items-center gap-2">
                   <CheckIcon /> Export PDF, PowerPoint et image
@@ -155,10 +158,10 @@ export default function HomePage() {
               </p>
               <ul className="mt-6 space-y-3 text-sm text-gray-700">
                 <li className="flex items-center gap-2">
-                  <CheckIcon /> Analyses illimitées
+                  <CheckIcon /> Téléchargements illimités, tous les jours
                 </li>
                 <li className="flex items-center gap-2">
-                  <CheckIcon /> Personnalisez vos graphiques : déplacez, changez de type, ajoutez du texte
+                  <CheckIcon /> Tous les avantages du plan gratuit
                 </li>
                 <li className="flex items-center gap-2">
                   <LockIcon /> <span className="text-gray-500">Export prioritaire et modèles de rapport</span>

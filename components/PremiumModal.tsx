@@ -4,10 +4,10 @@ import { useEffect } from "react";
 
 const BENEFITS = [
   "Analyses illimitées, tous les jours",
+  "Téléchargez vos rapports personnalisés (PDF, PowerPoint, image)",
   "Déplacez vos graphiques où vous voulez sur la page",
   "Changez le type d'un graphique (barres, courbe, camembert...)",
   "Ajoutez et modifiez du texte directement sur le rapport",
-  "Export prioritaire et modèles de rapport",
 ];
 
 export default function PremiumModal({ onClose }: { onClose: () => void }) {
@@ -42,9 +42,9 @@ export default function PremiumModal({ onClose }: { onClose: () => void }) {
         <span className="inline-flex rounded-full bg-brand-100 px-3 py-1 text-xs font-semibold text-brand-700">
           Bientôt disponible
         </span>
-        <h2 className="mt-3 text-xl font-bold text-gray-900">La modification est réservée à Premium</h2>
+        <h2 className="mt-3 text-xl font-bold text-gray-900">Le téléchargement d&apos;un rapport personnalisé est réservé à Premium</h2>
         <p className="mt-1 text-sm text-gray-600">
-          Personnalisez vos rapports comme vous le souhaitez, sans limite de génération.
+          Vous pouvez continuer à personnaliser votre rapport gratuitement — pour le télécharger, passez à Premium.
         </p>
 
         <ul className="mt-5 space-y-2.5">

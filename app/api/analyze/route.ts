@@ -4,6 +4,7 @@ import { generatePdfReport } from "@/lib/pdfReport";
 import { generatePptxReport } from "@/lib/pptxReport";
 import { generatePngReport } from "@/lib/pngReport";
 import { consumeQuota, getClientKey, peekQuota } from "@/lib/rateLimiter";
+import { buildKpis } from "@/lib/kpis";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -44,6 +45,7 @@ export async function POST(request: Request) {
 
   const file = formData.get("file");
   const formatField = formData.get("format");
+  const wantsJson = formatField === "json";
   const format: Format = formatField === "pptx" || formatField === "png" ? formatField : "pdf";
 
   if (!file || !(file instanceof File)) {
@@ -67,16 +69,20 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Le fichier dépasse la taille maximale autorisée (20 Mo)." }, { status: 413 });
   }
 
+  // Fetching the report as JSON (to open the free-to-explore chart editor)
+  // doesn't consume the daily quota — only a real file export does.
   const clientKey = getClientKey(request);
-  const quotaBefore = peekQuota(clientKey);
-  if (quotaBefore.remaining <= 0) {
-    return NextResponse.json(
-      {
-        error: `Vous avez atteint la limite de ${quotaBefore.limit} analyses gratuites aujourd'hui. Revenez demain, ou passez à SheetInsight Premium pour des analyses illimitées.`,
-        quota: { allowed: false, ...quotaBefore },
-      },
-      { status: 429, headers: { "X-RateLimit-Remaining": "0", "X-RateLimit-Limit": String(quotaBefore.limit) } }
-    );
+  if (!wantsJson) {
+    const quotaBefore = peekQuota(clientKey);
+    if (quotaBefore.remaining <= 0) {
+      return NextResponse.json(
+        {
+          error: `Vous avez atteint la limite de ${quotaBefore.limit} analyses gratuites aujourd'hui. Revenez demain, ou passez à SheetInsight Premium pour des analyses illimitées.`,
+          quota: { allowed: false, ...quotaBefore },
+        },
+        { status: 429, headers: { "X-RateLimit-Remaining": "0", "X-RateLimit-Limit": String(quotaBefore.limit) } }
+      );
+    }
   }
 
   try {
@@ -84,6 +90,20 @@ export async function POST(request: Request) {
     const buffer = Buffer.from(arrayBuffer);
 
     const analysis = await analyzeWorkbook(buffer, originalName);
+
+    if (wantsJson) {
+      return NextResponse.json(
+        {
+          fileName: analysis.fileName,
+          sheetName: analysis.sheetName,
+          rowCount: analysis.rowCount,
+          generatedAt: analysis.generatedAt,
+          kpis: buildKpis(analysis),
+          charts: analysis.charts,
+        },
+        { headers: { "Cache-Control": "no-store" } }
+      );
+    }
 
     const fileBuffer =
       format === "pptx" ? await generatePptxReport(analysis) : format === "png" ? await generatePngReport(analysis) : await generatePdfReport(analysis);
