@@ -110,14 +110,84 @@ function isBlank(value: unknown): boolean {
   return value === null || value === undefined || (typeof value === "string" && value.trim() === "");
 }
 
+// Handles: plain numbers, thousand/decimal separators in either order
+// ("1,234.56" or "1.234,56"), a lone comma as decimal ("12,5"), currency/
+// percent symbols, and accounting-style negatives in parentheses ("(1 234)").
 function tryParseNumber(value: unknown): number | null {
   if (typeof value === "number" && Number.isFinite(value)) return value;
-  if (typeof value === "string") {
-    const cleaned = value.replace(/\s/g, "").replace(/,/g, ".").replace(/[€$%]/g, "");
-    if (cleaned === "" || Number.isNaN(Number(cleaned))) return null;
-    return Number(cleaned);
+  if (typeof value !== "string") return null;
+
+  let s = value.trim();
+  if (s === "") return null;
+
+  let negative = false;
+  if (/^\(.*\)$/.test(s)) {
+    negative = true;
+    s = s.slice(1, -1).trim();
   }
-  return null;
+  s = s.replace(/[€$£%\s]/g, "");
+  if (s === "") return null;
+  if (s.startsWith("-")) {
+    negative = true;
+    s = s.slice(1);
+  }
+
+  const lastComma = s.lastIndexOf(",");
+  const lastDot = s.lastIndexOf(".");
+  if (lastComma !== -1 && lastDot !== -1) {
+    // Whichever separator appears last is the decimal point; the other is
+    // a thousands separator and gets stripped.
+    s = lastComma > lastDot ? s.replace(/\./g, "").replace(",", ".") : s.replace(/,/g, "");
+  } else if (lastComma !== -1) {
+    const decimalsLen = s.length - lastComma - 1;
+    s = decimalsLen > 0 && decimalsLen <= 2 ? s.replace(",", ".") : s.replace(/,/g, "");
+  }
+
+  if (!/^\d+(\.\d+)?$/.test(s)) return null;
+  const n = Number(s);
+  if (Number.isNaN(n)) return null;
+  return negative ? -n : n;
+}
+
+const FRENCH_MONTHS: Record<string, number> = {
+  janvier: 0,
+  janv: 0,
+  février: 1,
+  fevrier: 1,
+  fév: 1,
+  fev: 1,
+  mars: 2,
+  avril: 3,
+  avr: 3,
+  mai: 4,
+  juin: 5,
+  juillet: 6,
+  juil: 6,
+  août: 7,
+  aout: 7,
+  septembre: 8,
+  sept: 8,
+  sep: 8,
+  octobre: 9,
+  oct: 9,
+  novembre: 10,
+  nov: 10,
+  décembre: 11,
+  decembre: 11,
+  déc: 11,
+  dec: 11,
+};
+
+function tryParseFrenchTextDate(trimmed: string): Date | null {
+  const match = trimmed.toLowerCase().match(/^(\d{1,2})[\s-]+([a-zéû.]+)\.?[\s-]+(\d{4})$/);
+  if (!match) return null;
+  const day = Number(match[1]);
+  const monthKey = match[2].replace(/\.$/, "");
+  const year = Number(match[3]);
+  const monthIdx = FRENCH_MONTHS[monthKey];
+  if (monthIdx === undefined || day < 1 || day > 31) return null;
+  const date = new Date(year, monthIdx, day);
+  return Number.isNaN(date.getTime()) ? null : date;
 }
 
 function tryParseDate(value: unknown): Date | null {
@@ -129,6 +199,8 @@ function tryParseDate(value: unknown): Date | null {
       const parsed = new Date(trimmed);
       if (!Number.isNaN(parsed.getTime())) return parsed;
     }
+    const frenchDate = tryParseFrenchTextDate(trimmed);
+    if (frenchDate) return frenchDate;
   }
   return null;
 }
@@ -143,6 +215,142 @@ function extractColumns(rows: Record<string, unknown>[], headers: string[]): Raw
     name,
     values: rows.map((row) => row[name]),
   }));
+}
+
+const TOTAL_ROW_PATTERN = /^(grand\s*)?(total|sous[\s-]?total|totaux|somme)s?\s*:?\s*$/i;
+
+function isBlankRow(row: unknown[] | undefined): boolean {
+  return !row || row.every((cell) => isBlank(cell));
+}
+
+// Real-world exports rarely start with a clean header on row 1: there's
+// often a title, a logo caption, or a blank row or two above the actual
+// table. Score each of the first ~25 rows as a header candidate and pick
+// the best one instead of blindly trusting row 1.
+function rowHasDataSignal(row: unknown[]): boolean {
+  const filled = row.filter((c) => !isBlank(c));
+  if (filled.length < 2) return false;
+  return filled.some((c) => tryParseNumber(c) !== null || tryParseDate(c) !== null);
+}
+
+function findNonBlankRowIndex(raw: unknown[][], from: number, direction: 1 | -1): number {
+  for (let i = from; i >= 0 && i < raw.length; i += direction) {
+    if (!isBlankRow(raw[i])) return i;
+  }
+  return -1;
+}
+
+// Header labels are almost never literal numbers or dates, while any real
+// data table eventually has a row where a cell is one. Find that first
+// "data-shaped" row and treat the nearest non-blank row above it as the
+// header — this survives a title row, a blank spacer row, or a header row
+// with a blank/merged cell in it far better than scoring rows in isolation
+// (which a plain, mostly-text data row can accidentally out-score).
+function detectTableStart(raw: unknown[][]): { headerRowIndex: number | null; dataStartIndex: number } {
+  const maxScan = Math.min(raw.length, 40);
+  let firstDataRow = -1;
+  for (let i = 0; i < maxScan; i++) {
+    if (isBlankRow(raw[i])) continue;
+    if (rowHasDataSignal(raw[i])) {
+      firstDataRow = i;
+      break;
+    }
+  }
+
+  if (firstDataRow === -1) {
+    // No numeric/date cell found anywhere scanned (e.g. an all-text table)
+    // — fall back to "the first non-blank row is the header".
+    const firstRow = findNonBlankRowIndex(raw, 0, 1);
+    return firstRow === -1 ? { headerRowIndex: null, dataStartIndex: 0 } : { headerRowIndex: firstRow, dataStartIndex: firstRow + 1 };
+  }
+
+  const headerCandidate = findNonBlankRowIndex(raw, firstDataRow - 1, -1);
+  if (headerCandidate === -1) {
+    // Nothing plausible above the first data row — there's no header at all.
+    return { headerRowIndex: null, dataStartIndex: firstDataRow };
+  }
+  return { headerRowIndex: headerCandidate, dataStartIndex: firstDataRow };
+}
+
+interface ExtractedTable {
+  headers: string[];
+  rows: Record<string, unknown>[];
+  headerRowIndex: number | null;
+  excludedTotalRowCount: number;
+}
+
+// Builds a clean row/column table out of a raw sheet: finds the real header
+// row, names blank header cells instead of silently dropping that column's
+// data, stops at the first real gap so a second, unrelated table further
+// down the sheet doesn't get merged in, and drops obvious total/subtotal
+// rows so they don't inflate sums and averages.
+function extractTableFromSheet(sheet: XLSX.WorkSheet): ExtractedTable | null {
+  const raw = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, raw: true, defval: null, blankrows: true });
+  if (raw.length === 0 || raw.every((r) => isBlankRow(r))) return null;
+
+  const { headerRowIndex, dataStartIndex } = detectTableStart(raw);
+  const columnCount = headerRowIndex !== null ? raw[headerRowIndex].length : Math.max(...raw.slice(dataStartIndex, dataStartIndex + 20).map((r) => r.length), 1);
+  const headerRow = headerRowIndex !== null ? raw[headerRowIndex] : [];
+
+  const seen = new Map<string, number>();
+  const headers = Array.from({ length: columnCount }, (_, i) => {
+    const cell = headerRow[i];
+    const label = isBlank(cell) ? "" : String(cell).trim();
+    const base = label || `Colonne ${i + 1}`;
+    const count = seen.get(base) ?? 0;
+    seen.set(base, count + 1);
+    return count === 0 ? base : `${base} (${count + 1})`;
+  });
+
+  const dataRaw = raw.slice(dataStartIndex);
+  let cutoff = dataRaw.length;
+  let blankStreak = 0;
+  for (let i = 0; i < dataRaw.length; i++) {
+    if (isBlankRow(dataRaw[i])) {
+      blankStreak++;
+      if (blankStreak >= 2) {
+        cutoff = i - blankStreak + 1;
+        break;
+      }
+    } else {
+      blankStreak = 0;
+    }
+  }
+
+  const dataRows = dataRaw.slice(0, cutoff).filter((r) => !isBlankRow(r));
+
+  let excludedTotalRowCount = 0;
+  const rows: Record<string, unknown>[] = [];
+  for (const r of dataRows) {
+    const isTotalRow = r.some((cell) => typeof cell === "string" && TOTAL_ROW_PATTERN.test(cell.trim()));
+    if (isTotalRow) {
+      excludedTotalRowCount++;
+      continue;
+    }
+    // A row with at most one filled cell in a multi-column table is almost
+    // always a stray footnote/source line, not a real record — a single
+    // blank row isn't always enough of a gap to have caught it above.
+    const filledCount = r.filter((cell) => !isBlank(cell)).length;
+    if (headers.length > 2 && filledCount <= 1) continue;
+
+    const row: Record<string, unknown> = {};
+    headers.forEach((h, i) => {
+      row[h] = r[i] ?? null;
+    });
+    rows.push(row);
+  }
+
+  // SheetJS pads every row to the sheet's overall used range, which can
+  // span far below/right of this table (e.g. an unrelated second table
+  // further down) — drop any column that came out fully empty as a result.
+  const nonEmptyHeaders = headers.filter((h) => rows.some((row) => !isBlank(row[h])));
+  const trimmedRows = rows.map((row) => {
+    const trimmed: Record<string, unknown> = {};
+    for (const h of nonEmptyHeaders) trimmed[h] = row[h];
+    return trimmed;
+  });
+
+  return { headers: nonEmptyHeaders, rows: trimmedRows, headerRowIndex, excludedTotalRowCount };
 }
 
 function inferColumnType(values: unknown[]): ColumnType {
@@ -837,19 +1045,26 @@ export async function analyzeWorkbook(buffer: Buffer, fileName: string): Promise
   let sheetName = "";
   let rows: Record<string, unknown>[] = [];
   let headers: string[] = [];
+  let excludedTotalRowCount = 0;
 
+  // Pick whichever sheet actually yields a usable table — not just the
+  // first non-empty one, since a workbook's first tab is sometimes a cover
+  // page or an instructions sheet with only a couple of stray cells.
+  let bestTable: ExtractedTable | null = null;
+  let bestSheetName = "";
   for (const name of workbook.SheetNames) {
-    const sheet = workbook.Sheets[name];
-    const asRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, {
-      defval: null,
-      raw: true,
-    });
-    if (asRows.length > 0) {
-      sheetName = name;
-      rows = asRows;
-      headers = Object.keys(asRows[0]).filter((h) => !h.startsWith("__EMPTY"));
-      break;
+    const table = extractTableFromSheet(workbook.Sheets[name]);
+    if (table && table.rows.length > 0 && (!bestTable || table.rows.length > bestTable.rows.length)) {
+      bestTable = table;
+      bestSheetName = name;
     }
+  }
+
+  if (bestTable) {
+    sheetName = bestSheetName;
+    rows = bestTable.rows;
+    headers = bestTable.headers;
+    excludedTotalRowCount = bestTable.excludedTotalRowCount;
   }
 
   if (rows.length === 0) {
@@ -941,6 +1156,12 @@ export async function analyzeWorkbook(buffer: Buffer, fileName: string): Promise
     const direction = top.coefficient > 0 ? "positivement" : "négativement";
     narrative.push(
       `Corrélation notable : "${top.columnA}" et "${top.columnB}" varient ${direction} ensemble (coefficient de ${formatNumber(top.coefficient)}).`
+    );
+  }
+
+  if (excludedTotalRowCount > 0) {
+    narrative.push(
+      `${formatNumber(excludedTotalRowCount)} ligne(s) de type "Total" ont été détectées et exclues des calculs pour ne pas fausser les sommes et moyennes.`
     );
   }
 
