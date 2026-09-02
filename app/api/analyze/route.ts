@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import { analyzeWorkbook } from "@/lib/analyzer";
 import { generatePdfReport } from "@/lib/pdfReport";
+import { generatePptxReport } from "@/lib/pptxReport";
+import { generatePngReport } from "@/lib/pngReport";
+import { consumeQuota, getClientKey, peekQuota } from "@/lib/rateLimiter";
+import { buildKpis } from "@/lib/kpis";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -8,6 +12,16 @@ export const maxDuration = 60;
 
 const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20MB
 const ALLOWED_EXTENSIONS = [".xlsx", ".xls", ".xlsm", ".csv"];
+
+const FORMATS = {
+  pdf: { contentType: "application/pdf", extension: "pdf" },
+  pptx: {
+    contentType: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    extension: "pptx",
+  },
+  png: { contentType: "image/png", extension: "png" },
+} as const;
+type Format = keyof typeof FORMATS;
 
 function sanitizeFileName(name: string): string {
   const base = name.replace(/[\r\n"]/g, "").split(/[\\/]/).pop() ?? "fichier";
@@ -30,6 +44,9 @@ export async function POST(request: Request) {
   }
 
   const file = formData.get("file");
+  const formatField = formData.get("format");
+  const wantsJson = formatField === "json";
+  const format: Format = formatField === "pptx" || formatField === "png" ? formatField : "pdf";
 
   if (!file || !(file instanceof File)) {
     return NextResponse.json({ error: "Aucun fichier reçu." }, { status: 400 });
@@ -52,21 +69,60 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Le fichier dépasse la taille maximale autorisée (20 Mo)." }, { status: 413 });
   }
 
+  // Fetching the report as JSON (to open the free-to-explore chart editor)
+  // doesn't consume the daily quota — only a real file export does.
+  const clientKey = getClientKey(request);
+  if (!wantsJson) {
+    const quotaBefore = peekQuota(clientKey);
+    if (quotaBefore.remaining <= 0) {
+      return NextResponse.json(
+        {
+          error: `Vous avez atteint la limite de ${quotaBefore.limit} analyses gratuites aujourd'hui. Revenez demain, ou passez à SheetInsight Premium pour des analyses illimitées.`,
+          quota: { allowed: false, ...quotaBefore },
+        },
+        { status: 429, headers: { "X-RateLimit-Remaining": "0", "X-RateLimit-Limit": String(quotaBefore.limit) } }
+      );
+    }
+  }
+
   try {
     const arrayBuffer = await file.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
 
     const analysis = await analyzeWorkbook(buffer, originalName);
-    const pdfBuffer = await generatePdfReport(analysis);
 
-    const downloadName = `${originalName.replace(/\.[^.]+$/, "")}-analyse.pdf`.replace(/[^a-zA-Z0-9._-]/g, "_");
+    if (wantsJson) {
+      return NextResponse.json(
+        {
+          fileName: analysis.fileName,
+          sheetName: analysis.sheetName,
+          rowCount: analysis.rowCount,
+          generatedAt: analysis.generatedAt,
+          kpis: buildKpis(analysis),
+          charts: analysis.charts,
+        },
+        { headers: { "Cache-Control": "no-store" } }
+      );
+    }
 
-    return new NextResponse(new Uint8Array(pdfBuffer), {
+    const fileBuffer =
+      format === "pptx" ? await generatePptxReport(analysis) : format === "png" ? await generatePngReport(analysis) : await generatePdfReport(analysis);
+
+    // Only a successful generation counts against the free quota — a
+    // rejected or malformed upload shouldn't cost the user one of their 5.
+    const quota = consumeQuota(clientKey);
+
+    const { contentType, extension } = FORMATS[format];
+    const downloadName = `${originalName.replace(/\.[^.]+$/, "")}-analyse.${extension}`.replace(/[^a-zA-Z0-9._-]/g, "_");
+
+    return new NextResponse(new Uint8Array(fileBuffer), {
       status: 200,
       headers: {
-        "Content-Type": "application/pdf",
+        "Content-Type": contentType,
         "Content-Disposition": `attachment; filename="${downloadName}"`,
         "Cache-Control": "no-store",
+        "X-RateLimit-Remaining": String(quota.remaining),
+        "X-RateLimit-Limit": String(quota.limit),
       },
     });
   } catch (error) {

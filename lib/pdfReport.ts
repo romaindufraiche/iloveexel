@@ -1,8 +1,9 @@
 import PDFDocument from "pdfkit";
 import SVGtoPDF from "svg-to-pdfkit";
-import { barChart, donutChart, lineChart, CHART_HEIGHT, CHART_WIDTH } from "./svgCharts";
-import type { AnalysisResult, ColumnProfile } from "./types";
+import { barChart, donutChart, heatmapChart, lineChart, scatterChart, CHART_HEIGHT, CHART_WIDTH } from "./svgCharts";
+import type { AnalysisResult, ChartSpec, TableChart } from "./types";
 import { formatNumber } from "./format";
+import { buildKpis } from "./kpis";
 
 const BRAND_NAME = "SheetInsight";
 const GREEN = "#0a8a54";
@@ -36,50 +37,90 @@ function drawFooter(doc: PDFKit.PDFDocument, pageLabel: string) {
   doc.page.margins.bottom = originalBottomMargin;
 }
 
-function drawSectionTitle(doc: PDFKit.PDFDocument, title: string) {
-  doc.fontSize(16).fillColor(DARK).font("Helvetica-Bold").text(title, PAGE_MARGIN, doc.y, { paragraphGap: 4 });
-  const y = doc.y;
-  doc
-    .moveTo(PAGE_MARGIN, y)
-    .lineTo(PAGE_MARGIN + 40, y)
-    .lineWidth(3)
-    .strokeColor(GREEN)
-    .stroke();
-  doc.moveDown(0.8);
-}
-
 function drawKpiCard(doc: PDFKit.PDFDocument, x: number, y: number, width: number, label: string, value: string) {
-  const height = 56;
+  const height = 60;
   doc.roundedRect(x, y, width, height, 8).fill(LIGHT_BG);
   doc
-    .fontSize(15)
+    .fontSize(16)
     .fillColor(GREEN)
     .font("Helvetica-Bold")
-    .text(value, x + 12, y + 10, { width: width - 24 });
+    .text(value, x + 12, y + 11, { width: width - 24, lineBreak: false, ellipsis: true });
   doc
     .fontSize(9)
     .fillColor(GRAY)
     .font("Helvetica")
-    .text(label, x + 12, y + 32, { width: width - 24 });
+    .text(label, x + 12, y + 34, { width: width - 24, lineBreak: false, ellipsis: true });
 }
 
-function columnTypeLabel(type: string): string {
-  switch (type) {
-    case "numeric":
-      return "Numérique";
-    case "date":
-      return "Date";
-    case "categorical":
-      return "Catégorielle";
-    case "boolean":
-      return "Booléenne";
-    default:
-      return "Texte";
+const TABLE_ROW_HEIGHT = 20;
+
+function tableColumnLayout(chart: TableChart, x: number, width: number) {
+  const firstColWidth = Math.min(Math.max(width * 0.38, 120), 220);
+  const otherColWidth = (width - firstColWidth) / Math.max(1, chart.columns.length - 1);
+  const colWidths = chart.columns.map((_, i) => (i === 0 ? firstColWidth : otherColWidth));
+  const colX = chart.columns.map((_, i) => x + (i === 0 ? 0 : firstColWidth + (i - 1) * otherColWidth));
+  return { colWidths, colX };
+}
+
+function estimateTableRowsHeight(chart: TableChart): number {
+  return 24 + chart.rows.length * TABLE_ROW_HEIGHT;
+}
+
+function drawTable(doc: PDFKit.PDFDocument, chart: TableChart, x: number, width: number) {
+  const { colWidths, colX } = tableColumnLayout(chart, x, width);
+
+  // A plain `lineBreak: false` doesn't reliably suppress wrapping for text
+  // that overflows the column width in pdfkit — it can still wrap onto a
+  // second line, which then overlaps the next row since row spacing assumes
+  // a single line. Constraining `height` to exactly one line height is the
+  // pattern that reliably truncates with an ellipsis instead.
+  doc.fontSize(9).font("Helvetica-Bold");
+  const headerLineHeight = doc.currentLineHeight();
+  doc.fillColor(GRAY);
+  const headerY = doc.y;
+  chart.columns.forEach((colName, i) => {
+    doc.text(colName, colX[i], headerY, { width: colWidths[i] - 8, height: headerLineHeight, ellipsis: true });
+  });
+  doc.y = headerY;
+  doc.moveDown(1);
+  doc
+    .moveTo(x, doc.y)
+    .lineTo(x + width, doc.y)
+    .strokeColor("#e5e7eb")
+    .stroke();
+  doc.moveDown(0.3);
+
+  doc.font("Helvetica").fontSize(9.5);
+  const rowLineHeight = doc.currentLineHeight();
+  chart.rows.forEach((row, rowIndex) => {
+    const rowY = doc.y;
+    if (rowIndex % 2 === 1) {
+      doc.rect(x, rowY - 2, width, TABLE_ROW_HEIGHT - 2).fill(LIGHT_BG);
+    }
+    doc.fillColor(DARK);
+    row.forEach((cell, i) => {
+      doc.text(cell, colX[i], rowY, { width: colWidths[i] - 8, height: rowLineHeight, ellipsis: true });
+    });
+    doc.y = rowY;
+    doc.moveDown(1.05);
+  });
+}
+
+function chartToSvg(chart: ChartSpec): string {
+  switch (chart.kind) {
+    case "bar":
+      return barChart(chart.labels, chart.values, chart.seriesLabel);
+    case "line":
+      return lineChart(chart.labels, chart.values, chart.seriesLabel);
+    case "donut":
+      return donutChart(chart.labels, chart.values);
+    case "scatter":
+      return scatterChart(chart.points, chart.xLabel, chart.yLabel);
+    case "heatmap":
+      return heatmapChart(chart.rowLabels, chart.colLabels, chart.matrix, chart.displayMatrix, chart.colorScale);
+    case "table":
+      throw new Error("table charts are drawn directly, not as SVG");
   }
-}
-
-function missingCountOf(column: ColumnProfile): number {
-  return "missing" in column.stats ? column.stats.missing : 0;
 }
 
 export async function generatePdfReport(analysis: AnalysisResult): Promise<Buffer> {
@@ -92,94 +133,81 @@ export async function generatePdfReport(analysis: AnalysisResult): Promise<Buffe
 
   const contentWidth = doc.page.width - PAGE_MARGIN * 2;
 
-  // ---------- Cover page ----------
-  doc.rect(0, 0, doc.page.width, 230).fill(GREEN);
+  // ---------- Compact header ----------
   doc
-    .fontSize(12)
-    .fillColor("#d6f9e2")
+    .fontSize(10)
+    .fillColor(GREEN)
     .font("Helvetica-Bold")
-    .text(BRAND_NAME.toUpperCase(), PAGE_MARGIN, 60, { characterSpacing: 2 });
+    .text(BRAND_NAME.toUpperCase(), PAGE_MARGIN, PAGE_MARGIN, { characterSpacing: 1.5, continued: false });
   doc
-    .fontSize(28)
-    .fillColor("#ffffff")
-    .font("Helvetica-Bold")
-    .text("Rapport d'analyse de données", PAGE_MARGIN, 90, { width: contentWidth });
-  doc
-    .fontSize(12)
-    .fillColor("#eafff4")
-    .font("Helvetica")
-    .text(`Fichier analysé : ${analysis.fileName}`, PAGE_MARGIN, 160, { width: contentWidth });
-  doc.text(`Feuille : ${analysis.sheetName}  •  Généré le ${analysis.generatedAt.toLocaleDateString("fr-FR")}`, PAGE_MARGIN, doc.y, {
-    width: contentWidth,
-  });
-
-  const kpiY = 260;
-  const kpiWidth = (contentWidth - 24) / 3;
-  drawKpiCard(doc, PAGE_MARGIN, kpiY, kpiWidth, "Lignes analysées", formatNumber(analysis.rowCount));
-  drawKpiCard(doc, PAGE_MARGIN + kpiWidth + 12, kpiY, kpiWidth, "Colonnes", String(analysis.columnCount));
-  drawKpiCard(
-    doc,
-    PAGE_MARGIN + (kpiWidth + 12) * 2,
-    kpiY,
-    kpiWidth,
-    "Indicateurs clés détectés",
-    String(analysis.keyMetrics.length)
-  );
-
-  doc.y = kpiY + 80;
-  drawSectionTitle(doc, "Résumé");
-  doc
-    .fontSize(11)
+    .fontSize(19)
     .fillColor(DARK)
+    .font("Helvetica-Bold")
+    .text(`Rapport d'analyse — ${analysis.fileName}`, PAGE_MARGIN, doc.y + 4, { width: contentWidth });
+  doc
+    .fontSize(10)
+    .fillColor(GRAY)
     .font("Helvetica")
     .text(
-      `Ce rapport a été généré automatiquement à partir de votre fichier Excel. Notre moteur d'analyse a identifié le type de chaque colonne, détecté les indicateurs les plus pertinents, et sélectionné les graphiques les plus adaptés pour comprendre vos données — sans configuration de votre part.`,
+      `Feuille "${analysis.sheetName}"  •  ${formatNumber(analysis.rowCount)} lignes analysées  •  Généré le ${analysis.generatedAt.toLocaleDateString("fr-FR")}`,
       PAGE_MARGIN,
-      doc.y,
-      { width: contentWidth, lineGap: 3 }
+      doc.y + 2,
+      { width: contentWidth }
     );
-  drawFooter(doc, "Page 1");
+  doc
+    .moveTo(PAGE_MARGIN, doc.y + 10)
+    .lineTo(doc.page.width - PAGE_MARGIN, doc.y + 10)
+    .strokeColor("#e5e7eb")
+    .stroke();
+  doc.y += 24;
 
-  // ---------- Executive summary ----------
-  doc.addPage();
-  drawSectionTitle(doc, "Points clés");
-  doc.fontSize(11).font("Helvetica").fillColor(DARK);
-  for (const line of analysis.narrative) {
-    doc.circle(PAGE_MARGIN + 3, doc.y + 6, 2).fill(GREEN);
-    doc.fillColor(DARK).text(line, PAGE_MARGIN + 14, doc.y - 2, { width: contentWidth - 14, lineGap: 2 });
-    doc.moveDown(0.4);
-  }
+  // ---------- Direct KPIs: the numbers that matter, spelled out ----------
+  const shownKpis = buildKpis(analysis);
 
-  doc.moveDown(0.8);
-  drawSectionTitle(doc, "Recommandations");
-  doc.fontSize(11).font("Helvetica");
-  for (const rec of analysis.recommendations) {
-    doc.circle(PAGE_MARGIN + 3, doc.y + 6, 2).fill("#f59e0b");
-    doc.fillColor(DARK).text(rec, PAGE_MARGIN + 14, doc.y - 2, { width: contentWidth - 14, lineGap: 2 });
-    doc.moveDown(0.4);
-  }
-  drawFooter(doc, "Page 2");
+  const kpiGap = 12;
+  const kpiWidth = (contentWidth - kpiGap * (shownKpis.length - 1)) / shownKpis.length;
+  const kpiY = doc.y;
+  shownKpis.forEach((kpi, i) => {
+    drawKpiCard(doc, PAGE_MARGIN + i * (kpiWidth + kpiGap), kpiY, kpiWidth, kpi.label, kpi.value);
+  });
+  doc.y = kpiY + 60 + 20;
 
-  // ---------- Charts ----------
-  let pageIndex = 3;
+  // ---------- Charts & tables ----------
+  const scale = contentWidth / CHART_WIDTH;
+  const renderedHeight = CHART_HEIGHT * scale;
+  let pageIndex = 1;
   let chartOnPage = 0;
   for (const chart of analysis.charts) {
-    if (chartOnPage === 0) {
+    // Measure this block precisely before drawing anything: pdfkit silently
+    // starts a new page mid-draw if content overflows, which desyncs our
+    // own page/footer numbering. Deciding up front avoids that.
+    doc.fontSize(13).font("Helvetica-Bold");
+    const titleHeight = doc.heightOfString(chart.title, { width: contentWidth });
+    doc.fontSize(10).font("Helvetica-Oblique");
+    const insightHeight = doc.heightOfString(chart.insight, { width: contentWidth, lineGap: 2 });
+    const bodyHeight = chart.kind === "table" ? estimateTableRowsHeight(chart) : renderedHeight;
+    const blockHeight = titleHeight + 5 + bodyHeight + 8 + insightHeight + 15 + 10;
+
+    const availableHeight = doc.page.height - doc.page.margins.bottom - doc.y;
+    if (chartOnPage > 0 && (chartOnPage >= 2 || blockHeight > availableHeight)) {
+      drawFooter(doc, `Page ${pageIndex}`);
+      pageIndex++;
       doc.addPage();
+      chartOnPage = 0;
     }
-    const svg =
-      chart.kind === "bar"
-        ? barChart(chart.labels, chart.values, chart.seriesLabel)
-        : chart.kind === "line"
-          ? lineChart(chart.labels, chart.values, chart.seriesLabel)
-          : donutChart(chart.labels, chart.values);
 
     doc.fontSize(13).font("Helvetica-Bold").fillColor(DARK).text(chart.title, PAGE_MARGIN, doc.y, { width: contentWidth });
     doc.moveDown(0.3);
-    const scale = contentWidth / CHART_WIDTH;
-    const renderedHeight = CHART_HEIGHT * scale;
-    SVGtoPDF(doc, svg, PAGE_MARGIN, doc.y, { width: contentWidth, height: renderedHeight, preserveAspectRatio: "xMidYMid meet" });
-    doc.y += renderedHeight + 8;
+
+    if (chart.kind === "table") {
+      drawTable(doc, chart, PAGE_MARGIN, contentWidth);
+      doc.y += 8;
+    } else {
+      const svg = chartToSvg(chart);
+      SVGtoPDF(doc, svg, PAGE_MARGIN, doc.y, { width: contentWidth, height: renderedHeight, preserveAspectRatio: "xMidYMid meet" });
+      doc.y += renderedHeight + 8;
+    }
+
     doc
       .fontSize(10)
       .font("Helvetica-Oblique")
@@ -188,57 +216,10 @@ export async function generatePdfReport(analysis: AnalysisResult): Promise<Buffe
     doc.moveDown(1.2);
 
     chartOnPage++;
-    if (chartOnPage >= 2 || doc.y > doc.page.height - 260) {
-      drawFooter(doc, `Page ${pageIndex}`);
-      pageIndex++;
-      chartOnPage = 0;
-    }
   }
   if (chartOnPage !== 0) {
     drawFooter(doc, `Page ${pageIndex}`);
-    pageIndex++;
   }
-
-  // ---------- Column detail / data quality ----------
-  doc.addPage();
-  drawSectionTitle(doc, "Qualité des données par colonne");
-  const colX = [PAGE_MARGIN, PAGE_MARGIN + 190, PAGE_MARGIN + 290, PAGE_MARGIN + 390];
-  doc.fontSize(9).font("Helvetica-Bold").fillColor(GRAY);
-  const headerY = doc.y;
-  doc.text("Colonne", colX[0], headerY, { width: 180, lineBreak: false });
-  doc.text("Type", colX[1], headerY, { width: 90, lineBreak: false });
-  doc.text("Manquantes", colX[2], headerY, { width: 100, lineBreak: false });
-  doc.text("Uniques", colX[3], headerY, { width: contentWidth - (colX[3] - PAGE_MARGIN), lineBreak: false });
-  doc.y = headerY;
-  doc.moveDown(1);
-  doc
-    .moveTo(PAGE_MARGIN, doc.y)
-    .lineTo(PAGE_MARGIN + contentWidth, doc.y)
-    .strokeColor("#e5e7eb")
-    .stroke();
-  doc.moveDown(0.3);
-
-  doc.font("Helvetica").fontSize(9.5).fillColor(DARK);
-  for (const col of analysis.columns) {
-    if (doc.y > doc.page.height - 90) {
-      drawFooter(doc, `Page ${pageIndex}`);
-      pageIndex++;
-      doc.addPage();
-      drawSectionTitle(doc, "Qualité des données par colonne (suite)");
-      doc.font("Helvetica").fontSize(9.5).fillColor(DARK);
-    }
-    const missing = missingCountOf(col);
-    const missingPct = analysis.rowCount ? formatNumber((missing / analysis.rowCount) * 100) : "0";
-    const unique =
-      col.stats.type === "categorical" || col.stats.type === "text" ? String(col.stats.uniqueCount) : "—";
-    const y = doc.y;
-    doc.text(col.name.length > 30 ? `${col.name.slice(0, 29)}…` : col.name, colX[0], y, { width: 180, lineBreak: false });
-    doc.text(columnTypeLabel(col.type), colX[1], y, { width: 90, lineBreak: false });
-    doc.text(`${missing} (${missingPct}%)`, colX[2], y, { width: 100, lineBreak: false });
-    doc.text(unique, colX[3], y, { width: contentWidth - (colX[3] - PAGE_MARGIN), lineBreak: false });
-    doc.moveDown(1.1);
-  }
-  drawFooter(doc, `Page ${pageIndex}`);
 
   doc.end();
   return done;
