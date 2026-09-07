@@ -1316,9 +1316,92 @@ function bestScoredColumn(candidates: ColumnProfile[], tokens: string[]): Column
 export interface ChartQueryResult {
   chart: ChartSpec | null;
   message: string;
+  requiresPremium?: boolean;
 }
 
 const TREND_KEYWORDS = /\b(evolution|tendance|temps|mois|annee|jour|periode|historique)\b/;
+
+interface PeriodMatch {
+  start: Date;
+  end: Date;
+  label: string;
+}
+
+function extractYearToken(tokens: string[]): number | null {
+  for (const t of tokens) {
+    if (/^(19|20)\d{2}$/.test(t)) return Number(t);
+  }
+  return null;
+}
+
+function ordinalValue(token: string | undefined): 1 | 2 | 3 | 4 | null {
+  if (!token) return null;
+  if (["1", "1er", "1ere", "premier", "premiere"].includes(token)) return 1;
+  if (["2", "2e", "2eme", "2nd", "2nde", "deuxieme", "second", "seconde"].includes(token)) return 2;
+  if (["3", "3e", "3eme", "troisieme"].includes(token)) return 3;
+  if (["4", "4e", "4eme", "quatrieme"].includes(token)) return 4;
+  return null;
+}
+
+// Recognizes French period phrasing ("premier semestre 2026", "T3 2024",
+// "janvier 2024", bare "2023"...) so the search bar can answer scoped
+// questions on top of a file spanning several years — gated behind Premium
+// since it goes beyond simple column matching (see answerChartQuery).
+function parsePeriodFromTokens(tokens: string[]): PeriodMatch | null {
+  const year = extractYearToken(tokens);
+
+  const semIdx = tokens.indexOf("semestre");
+  const compactSem = tokens.find((t) => /^s[12]$/.test(t));
+  let half: 1 | 2 | null = null;
+  if (semIdx !== -1) {
+    const ord = ordinalValue(tokens[semIdx - 1]) ?? ordinalValue(tokens[semIdx + 1]);
+    if (ord === 1 || ord === 2) half = ord;
+  } else if (compactSem) {
+    half = Number(compactSem[1]) as 1 | 2;
+  }
+
+  const triIdx = tokens.indexOf("trimestre");
+  const compactTri = tokens.find((t) => /^[tq][1-4]$/.test(t));
+  let quarter: 1 | 2 | 3 | 4 | null = null;
+  if (triIdx !== -1) {
+    quarter = ordinalValue(tokens[triIdx - 1]) ?? ordinalValue(tokens[triIdx + 1]);
+  } else if (compactTri) {
+    quarter = Number(compactTri[1]) as 1 | 2 | 3 | 4;
+  }
+
+  if (year && half) {
+    const startMonth = half === 1 ? 0 : 6;
+    return {
+      start: new Date(year, startMonth, 1),
+      end: new Date(year, startMonth + 6, 0, 23, 59, 59),
+      label: `${half === 1 ? "1er" : "2e"} semestre ${year}`,
+    };
+  }
+
+  if (year && quarter) {
+    const startMonth = (quarter - 1) * 3;
+    return {
+      start: new Date(year, startMonth, 1),
+      end: new Date(year, startMonth + 3, 0, 23, 59, 59),
+      label: `T${quarter} ${year}`,
+    };
+  }
+
+  if (year) {
+    for (const [name, idx] of Object.entries(FRENCH_MONTHS)) {
+      if (tokens.includes(name)) {
+        return {
+          start: new Date(year, idx, 1),
+          end: new Date(year, idx + 1, 0, 23, 59, 59),
+          label: `${name} ${year}`,
+        };
+      }
+    }
+    return { start: new Date(year, 0, 1), end: new Date(year, 11, 31, 23, 59, 59), label: `${year}` };
+  }
+
+  return null;
+}
 
 // Powers the editor's "je veux un graphe avec..." search bar. This is a
 // zero-cost heuristic (word-overlap matching against the file's own column
@@ -1349,6 +1432,53 @@ export async function answerChartQuery(buffer: Buffer, prompt: string): Promise<
     return {
       chart: null,
       message: "Aucune colonne de votre fichier ne correspond à cette demande. Essayez avec un terme qui apparaît dans vos en-têtes de colonnes.",
+    };
+  }
+
+  const period = parsePeriodFromTokens(tokens);
+  if (period) {
+    if (!dateCol) {
+      return {
+        chart: null,
+        message: "Votre fichier ne contient pas de colonne de date exploitable pour filtrer sur une période.",
+        requiresPremium: true,
+      };
+    }
+
+    const filteredRows = rows.filter((row) => {
+      const d = tryParseDate(row[dateCol.name]);
+      return d !== null && d >= period.start && d <= period.end;
+    });
+
+    if (filteredRows.length === 0) {
+      return {
+        chart: null,
+        message: `Aucune donnée trouvée pour la période "${period.label}".`,
+        requiresPremium: true,
+      };
+    }
+
+    const filteredColumns = profileColumns(filteredRows, headers);
+    const filteredMetric = metric ? (filteredColumns.find((c) => c.name === metric.name) ?? null) : null;
+    const filteredCategory = category ? (filteredColumns.find((c) => c.name === category.name) ?? null) : null;
+
+    let periodChart: ChartSpec | null = null;
+    if (wantsTrend && filteredMetric) periodChart = buildTrendChart(dateCol, filteredMetric, filteredRows);
+    if (!periodChart && filteredMetric && filteredCategory) periodChart = buildCategoryRankingChart(filteredCategory, filteredMetric, filteredRows);
+    if (!periodChart && filteredCategory) periodChart = buildCompositionChart(filteredCategory);
+    if (!periodChart && filteredMetric) periodChart = buildDistributionChart(filteredMetric, filteredRows);
+
+    if (!periodChart) {
+      return { chart: null, message: "Je n'ai pas réussi à générer un graphique pertinent pour cette période.", requiresPremium: true };
+    }
+
+    periodChart.title = `${periodChart.title} — ${period.label}`;
+    periodChart.insight = `Période : ${period.label} (${filteredRows.length} lignes). ${periodChart.insight}`;
+
+    return {
+      chart: periodChart,
+      message: `Généré pour la période "${period.label}". Cette recherche par période est une fonctionnalité Premium.`,
+      requiresPremium: true,
     };
   }
 

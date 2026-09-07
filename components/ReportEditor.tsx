@@ -42,11 +42,13 @@ export default function ReportEditor({
   analysis,
   file,
   onRequestDownload,
+  onRequirePremium,
   onClose,
 }: {
   analysis: EditorAnalysis;
   file: File;
   onRequestDownload: () => void;
+  onRequirePremium: () => void;
   onClose: () => void;
 }) {
   const [kpis, setKpis] = useState<Kpi[]>(analysis.kpis);
@@ -99,6 +101,13 @@ export default function ReportEditor({
       const res = await fetch("/api/ask-chart", { method: "POST", body: formData });
       const data = await res.json();
 
+      if (data.requiresPremium) {
+        setQueryStatus({ type: "idle", message: "" });
+        setQuery("");
+        onRequirePremium();
+        return;
+      }
+
       if (!res.ok || !data.chart) {
         setQueryStatus({ type: "error", message: data.message || "Aucun graphique trouvé pour cette demande." });
         return;
@@ -121,7 +130,7 @@ export default function ReportEditor({
     } catch {
       setQueryStatus({ type: "error", message: "Impossible de contacter le serveur." });
     }
-  }, [query, file]);
+  }, [query, file, onRequirePremium]);
 
   return (
     <div className="mx-auto w-full max-w-4xl">
@@ -164,7 +173,7 @@ export default function ReportEditor({
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && runQuery()}
-            placeholder='ex : "le taux de conversion par région"'
+            placeholder='ex : "le montant par région pour le 1er semestre 2026" (période = Premium)'
             className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500"
           />
           <button

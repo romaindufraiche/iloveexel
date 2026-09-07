@@ -32,7 +32,7 @@ const PLANS: Plan[] = [
   },
 ];
 
-const REASON_COPY: Record<"download" | "account", { badge: string; heading: string; description: string }> = {
+const REASON_COPY: Record<"download" | "account" | "query", { badge: string; heading: string; description: string }> = {
   download: {
     badge: "Compte requis",
     heading: "Le téléchargement de ce rapport personnalisé nécessite un compte",
@@ -43,9 +43,14 @@ const REASON_COPY: Record<"download" | "account", { badge: string; heading: stri
     heading: "Connectez-vous pour aller plus loin",
     description: "Plus de volume et l'accès API, dès que vous en avez besoin.",
   },
+  query: {
+    badge: "Compte requis",
+    heading: "Interroger vos données par période nécessite un compte",
+    description: 'Demander un graphique sur une période précise ("1er semestre 2026", "T3 2024"...) au sein d\'un fichier de plusieurs années est une fonctionnalité Analyste et Expert.',
+  },
 };
 
-export default function PlansModal({ onClose, reason = "account" }: { onClose: () => void; reason?: "download" | "account" }) {
+export default function PlansModal({ onClose, reason = "account" }: { onClose: () => void; reason?: "download" | "account" | "query" }) {
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();

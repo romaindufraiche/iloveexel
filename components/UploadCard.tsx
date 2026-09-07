@@ -36,7 +36,7 @@ export default function UploadCard() {
   const [downloadUrl, setDownloadUrl] = useState<string>("");
   const [downloadName, setDownloadName] = useState<string>("");
   const [format, setFormat] = useState<ExportFormat>("pdf");
-  const [showPlansModal, setShowPlansModal] = useState(false);
+  const [plansModalReason, setPlansModalReason] = useState<"download" | "account" | "query" | null>(null);
   const [lastFile, setLastFile] = useState<File | null>(null);
   const [reportAnalysis, setReportAnalysis] = useState<EditorAnalysis | null>(null);
   const [isEditing, setIsEditing] = useState(false);
@@ -178,10 +178,11 @@ export default function UploadCard() {
         <ReportEditor
           analysis={reportAnalysis}
           file={lastFile}
-          onRequestDownload={() => setShowPlansModal(true)}
+          onRequestDownload={() => setPlansModalReason("download")}
+          onRequirePremium={() => setPlansModalReason("query")}
           onClose={() => setIsEditing(false)}
         />
-        {showPlansModal ? <PlansModal onClose={() => setShowPlansModal(false)} reason="download" /> : null}
+        {plansModalReason ? <PlansModal onClose={() => setPlansModalReason(null)} reason={plansModalReason} /> : null}
       </>
     );
   }
@@ -311,7 +312,7 @@ export default function UploadCard() {
             </p>
             <button
               type="button"
-              onClick={() => setShowPlansModal(true)}
+              onClick={() => setPlansModalReason("account")}
               className="mt-6 inline-flex items-center rounded-full bg-brand-600 px-6 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-700"
             >
               Voir les offres
@@ -338,7 +339,7 @@ export default function UploadCard() {
         </div>
       ) : null}
 
-      {showPlansModal ? <PlansModal onClose={() => setShowPlansModal(false)} reason="account" /> : null}
+      {plansModalReason ? <PlansModal onClose={() => setPlansModalReason(null)} reason={plansModalReason} /> : null}
     </div>
   );
 }
