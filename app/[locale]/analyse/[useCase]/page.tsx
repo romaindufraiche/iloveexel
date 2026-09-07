@@ -6,34 +6,53 @@ import SiteHeader from "@/components/SiteHeader";
 import SiteFooter from "@/components/SiteFooter";
 import PrivacyBadges from "@/components/PrivacyBadges";
 import PrivacySection from "@/components/PrivacySection";
-import { USE_CASES, findUseCase } from "@/lib/useCases";
+import { getUseCases, findUseCase, findUseCaseByKey } from "@/lib/useCases";
 import { SITE_URL } from "@/lib/site";
+import { LOCALES, LOCALE_HREFLANG, DEFAULT_LOCALE, isLocale, getDictionary } from "@/lib/i18n";
 
 export function generateStaticParams() {
-  return USE_CASES.map((useCase) => ({ useCase: useCase.slug }));
+  return LOCALES.flatMap((locale) => getUseCases(locale).map((useCase) => ({ locale, useCase: useCase.slug })));
 }
 
-export async function generateMetadata({ params }: { params: Promise<{ useCase: string }> }): Promise<Metadata> {
-  const { useCase: slug } = await params;
-  const useCase = findUseCase(slug);
+export async function generateMetadata({ params }: { params: Promise<{ locale: string; useCase: string }> }): Promise<Metadata> {
+  const { locale, useCase: slug } = await params;
+  if (!isLocale(locale)) return {};
+
+  const useCase = findUseCase(locale, slug);
   if (!useCase) return {};
 
-  const url = `${SITE_URL}/analyse/${useCase.slug}`;
+  const path = `/${locale}/analyse/${useCase.slug}`;
+
+  // Slugs differ per language, so each translation has to be looked up by key
+  // rather than by reusing this page's own path.
+  const languages: Record<string, string> = {};
+  for (const other of LOCALES) {
+    const translated = findUseCaseByKey(other, useCase.key);
+    if (translated) languages[LOCALE_HREFLANG[other]] = `/${other}/analyse/${translated.slug}`;
+  }
+  const defaultTranslation = findUseCaseByKey(DEFAULT_LOCALE, useCase.key);
+  if (defaultTranslation) languages["x-default"] = `/${DEFAULT_LOCALE}/analyse/${defaultTranslation.slug}`;
+
   return {
+    metadataBase: new URL(SITE_URL),
     title: { absolute: useCase.title },
     description: useCase.metaDescription,
-    alternates: { canonical: `/analyse/${useCase.slug}` },
-    openGraph: { type: "article", url, title: useCase.title, description: useCase.metaDescription },
+    alternates: { canonical: path, languages },
+    openGraph: { type: "article", url: `${SITE_URL}${path}`, title: useCase.title, description: useCase.metaDescription },
     twitter: { card: "summary_large_image", title: useCase.title, description: useCase.metaDescription },
   };
 }
 
-export default async function UseCasePage({ params }: { params: Promise<{ useCase: string }> }) {
-  const { useCase: slug } = await params;
-  const useCase = findUseCase(slug);
+export default async function UseCasePage({ params }: { params: Promise<{ locale: string; useCase: string }> }) {
+  const { locale, useCase: slug } = await params;
+  if (!isLocale(locale)) notFound();
+
+  const useCase = findUseCase(locale, slug);
   if (!useCase) notFound();
 
-  const otherUseCases = USE_CASES.filter((u) => u.slug !== useCase.slug);
+  const dict = getDictionary(locale);
+  const t = dict.useCasePage;
+  const otherUseCases = getUseCases(locale).filter((u) => u.slug !== useCase.slug);
 
   const faqJsonLd = {
     "@context": "https://schema.org",
@@ -49,8 +68,8 @@ export default async function UseCasePage({ params }: { params: Promise<{ useCas
     "@context": "https://schema.org",
     "@type": "BreadcrumbList",
     itemListElement: [
-      { "@type": "ListItem", position: 1, name: "Accueil", item: SITE_URL },
-      { "@type": "ListItem", position: 2, name: useCase.h1, item: `${SITE_URL}/analyse/${useCase.slug}` },
+      { "@type": "ListItem", position: 1, name: t.breadcrumbHome, item: `${SITE_URL}/${locale}` },
+      { "@type": "ListItem", position: 2, name: useCase.h1, item: `${SITE_URL}/${locale}/analyse/${useCase.slug}` },
     ],
   };
 
@@ -59,12 +78,12 @@ export default async function UseCasePage({ params }: { params: Promise<{ useCas
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(faqJsonLd) }} />
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbJsonLd) }} />
 
-      <SiteHeader />
+      <SiteHeader locale={locale} />
 
       <section className="mx-auto max-w-3xl px-6 pt-8 pb-14">
-        <nav aria-label="Fil d'Ariane" className="text-xs text-gray-500">
-          <Link href="/" className="hover:text-brand-700 hover:underline">
-            Accueil
+        <nav aria-label={t.breadcrumbHome} className="text-xs text-gray-500">
+          <Link href={`/${locale}`} className="hover:text-brand-700 hover:underline">
+            {t.breadcrumbHome}
           </Link>
           <span className="mx-1.5">/</span>
           <span className="text-gray-700">{useCase.navLabel}</span>
@@ -74,14 +93,14 @@ export default async function UseCasePage({ params }: { params: Promise<{ useCas
         <p className="mt-4 text-lg text-gray-600">{useCase.intro}</p>
 
         <div className="mt-10">
-          <UploadCard />
-          <PrivacyBadges />
+          <UploadCard locale={locale} />
+          <PrivacyBadges locale={locale} />
         </div>
       </section>
 
       <section className="bg-white py-14">
         <div className="mx-auto max-w-3xl px-6">
-          <h2 className="text-2xl font-bold text-gray-900">Ce que le moteur reconnaît dans ce type de fichier</h2>
+          <h2 className="text-2xl font-bold text-gray-900">{t.detectsTitle}</h2>
           <dl className="mt-6 divide-y divide-gray-100 rounded-xl border border-gray-200">
             {useCase.detects.map((item) => (
               <div key={item.column} className="flex flex-col gap-1 p-4 sm:flex-row sm:gap-4">
@@ -91,7 +110,7 @@ export default async function UseCasePage({ params }: { params: Promise<{ useCas
             ))}
           </dl>
 
-          <h2 className="mt-12 text-2xl font-bold text-gray-900">Ce que vous obtenez</h2>
+          <h2 className="mt-12 text-2xl font-bold text-gray-900">{t.outputsTitle}</h2>
           <ul className="mt-6 space-y-3">
             {useCase.outputs.map((output) => (
               <li key={output} className="flex items-start gap-3 text-gray-700">
@@ -105,11 +124,11 @@ export default async function UseCasePage({ params }: { params: Promise<{ useCas
         </div>
       </section>
 
-      <PrivacySection />
+      <PrivacySection locale={locale} />
 
       <section className="py-14">
         <div className="mx-auto max-w-3xl px-6">
-          <h2 className="text-2xl font-bold text-gray-900">Questions fréquentes</h2>
+          <h2 className="text-2xl font-bold text-gray-900">{t.faqTitle}</h2>
           <div className="mt-6 space-y-4">
             {useCase.faq.map((item) => (
               <div key={item.q} className="rounded-xl border border-gray-200 bg-white p-5">
@@ -119,12 +138,12 @@ export default async function UseCasePage({ params }: { params: Promise<{ useCas
             ))}
           </div>
 
-          <h2 className="mt-12 text-2xl font-bold text-gray-900">Autres types de fichiers</h2>
+          <h2 className="mt-12 text-2xl font-bold text-gray-900">{t.othersTitle}</h2>
           <div className="mt-6 grid gap-3 sm:grid-cols-2">
             {otherUseCases.map((other) => (
               <Link
                 key={other.slug}
-                href={`/analyse/${other.slug}`}
+                href={`/${locale}/analyse/${other.slug}`}
                 className="rounded-xl border border-gray-200 bg-white p-4 transition hover:border-brand-300 hover:shadow-sm"
               >
                 <p className="font-semibold text-brand-700">{other.h1}</p>
@@ -135,7 +154,7 @@ export default async function UseCasePage({ params }: { params: Promise<{ useCas
         </div>
       </section>
 
-      <SiteFooter />
+      <SiteFooter locale={locale} />
     </main>
   );
 }

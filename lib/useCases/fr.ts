@@ -3,20 +3,11 @@
 // with that kind of file — the content is deliberately specific per page,
 // since near-duplicate doorway pages get demoted rather than ranked.
 
-export interface UseCase {
-  slug: string;
-  navLabel: string;
-  h1: string;
-  title: string;
-  metaDescription: string;
-  intro: string;
-  detects: { column: string; role: string }[];
-  outputs: string[];
-  faq: { q: string; a: string }[];
-}
+import type { UseCase } from "./types";
 
-export const USE_CASES: UseCase[] = [
+export const frUseCases: UseCase[] = [
   {
+    key: "sales",
     slug: "fichier-de-ventes",
     navLabel: "Fichier de ventes",
     h1: "Analyser un fichier Excel de ventes",
@@ -49,6 +40,7 @@ export const USE_CASES: UseCase[] = [
     ],
   },
   {
+    key: "monthly-revenue",
     slug: "chiffre-affaires-mensuel",
     navLabel: "CA mensuel",
     h1: "Créer un rapport de chiffre d'affaires mensuel depuis Excel",
@@ -80,6 +72,7 @@ export const USE_CASES: UseCase[] = [
     ],
   },
   {
+    key: "budget",
     slug: "budget",
     navLabel: "Budget",
     h1: "Analyser un budget ou un suivi de dépenses Excel",
@@ -112,6 +105,7 @@ export const USE_CASES: UseCase[] = [
     ],
   },
   {
+    key: "csv",
     slug: "fichier-csv",
     navLabel: "Fichier CSV",
     h1: "Analyser un fichier CSV en ligne, sans logiciel",
@@ -144,6 +138,7 @@ export const USE_CASES: UseCase[] = [
     ],
   },
   {
+    key: "charts",
     slug: "graphiques-automatiques",
     navLabel: "Graphiques auto",
     h1: "Créer automatiquement les bons graphiques à partir d'un fichier Excel",
@@ -178,6 +173,7 @@ export const USE_CASES: UseCase[] = [
     ],
   },
   {
+    key: "hr",
     slug: "donnees-rh",
     navLabel: "Données RH",
     h1: "Analyser un fichier RH Excel : effectifs, absences, recrutement",
@@ -210,6 +206,7 @@ export const USE_CASES: UseCase[] = [
     ],
   },
   {
+    key: "stock",
     slug: "stock-inventaire",
     navLabel: "Stock, inventaire",
     h1: "Analyser un fichier de stock ou d'inventaire Excel",
@@ -242,6 +239,7 @@ export const USE_CASES: UseCase[] = [
     ],
   },
   {
+    key: "survey",
     slug: "resultats-questionnaire",
     navLabel: "Questionnaire",
     h1: "Analyser les résultats d'un questionnaire ou d'un sondage",
@@ -274,6 +272,7 @@ export const USE_CASES: UseCase[] = [
     ],
   },
   {
+    key: "marketing",
     slug: "marketing-acquisition",
     navLabel: "Marketing",
     h1: "Analyser vos données marketing : campagnes, leads, conversions",
@@ -306,6 +305,7 @@ export const USE_CASES: UseCase[] = [
     ],
   },
   {
+    key: "accounting",
     slug: "comptabilite-factures",
     navLabel: "Comptabilité",
     h1: "Analyser un export comptable ou un fichier de factures",
@@ -338,6 +338,7 @@ export const USE_CASES: UseCase[] = [
     ],
   },
   {
+    key: "student",
     slug: "memoire-etudiant",
     navLabel: "Mémoire, étude",
     h1: "Analyser les données d'un mémoire, d'une thèse ou d'un projet étudiant",
@@ -370,7 +371,3 @@ export const USE_CASES: UseCase[] = [
     ],
   }
 ];
-
-export function findUseCase(slug: string): UseCase | undefined {
-  return USE_CASES.find((useCase) => useCase.slug === slug);
-}

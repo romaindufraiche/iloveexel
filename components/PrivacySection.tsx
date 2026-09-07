@@ -1,15 +1,4 @@
-const WE_DO = [
-  "Lire votre fichier en mémoire, le temps de calculer les totaux et de tracer les graphiques",
-  "Vous renvoyer le rapport dans le format demandé",
-  "Puis oublier le fichier : il n'existe plus une fois le rapport généré",
-];
-
-const WE_DONT = [
-  "Enregistrer votre fichier sur un serveur ou dans une base de données",
-  "Conserver son contenu après la génération du rapport",
-  "L'utiliser pour entraîner un modèle ou alimenter une quelconque analyse",
-  "Le transmettre, le revendre ou le partager avec un tiers",
-];
+import { getDictionary, type Locale } from "@/lib/i18n";
 
 function Item({ children, positive }: { children: React.ReactNode; positive: boolean }) {
   return (
@@ -32,22 +21,20 @@ function Item({ children, positive }: { children: React.ReactNode; positive: boo
   );
 }
 
-export default function PrivacySection() {
+export default function PrivacySection({ locale }: { locale: Locale }) {
+  const { privacy } = getDictionary(locale);
+
   return (
     <section className="bg-brand-50 py-16">
       <div className="mx-auto max-w-4xl px-6">
-        <h2 className="text-center text-2xl font-bold text-gray-900">Vos données restent les vôtres</h2>
-        <p className="mx-auto mt-3 max-w-2xl text-center text-gray-600">
-          SheetInsight ne fait qu&apos;une chose : mettre en forme vos chiffres pour en sortir des graphiques. Votre fichier est lu le
-          temps du calcul, puis il disparaît. Il n&apos;est stocké nulle part, et son contenu n&apos;est exploité pour rien d&apos;autre
-          que votre propre rapport.
-        </p>
+        <h2 className="text-center text-2xl font-bold text-gray-900">{privacy.sectionTitle}</h2>
+        <p className="mx-auto mt-3 max-w-2xl text-center text-gray-600">{privacy.sectionIntro}</p>
 
         <div className="mt-10 grid gap-4 sm:grid-cols-2">
           <div className="rounded-2xl border border-brand-200 bg-white p-6">
-            <h3 className="text-base font-bold text-brand-700">Ce que nous faisons</h3>
+            <h3 className="text-base font-bold text-brand-700">{privacy.weDoTitle}</h3>
             <ul className="mt-4 space-y-3">
-              {WE_DO.map((item) => (
+              {privacy.weDo.map((item) => (
                 <Item key={item} positive>
                   {item}
                 </Item>
@@ -56,9 +43,9 @@ export default function PrivacySection() {
           </div>
 
           <div className="rounded-2xl border border-gray-200 bg-white p-6">
-            <h3 className="text-base font-bold text-gray-900">Ce que nous ne faisons pas</h3>
+            <h3 className="text-base font-bold text-gray-900">{privacy.weDontTitle}</h3>
             <ul className="mt-4 space-y-3">
-              {WE_DONT.map((item) => (
+              {privacy.weDont.map((item) => (
                 <Item key={item} positive={false}>
                   {item}
                 </Item>
@@ -67,10 +54,7 @@ export default function PrivacySection() {
           </div>
         </div>
 
-        <p className="mt-6 text-center text-xs text-gray-500">
-          Concrètement : aucune base de données ne contient vos lignes, et aucun fichier n&apos;est écrit sur disque. Sans compte, il
-          n&apos;y a même rien à quoi rattacher vos données.
-        </p>
+        <p className="mt-6 text-center text-xs text-gray-500">{privacy.footnote}</p>
       </div>
     </section>
   );

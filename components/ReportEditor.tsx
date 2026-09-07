@@ -5,6 +5,7 @@ import { PALETTE_PRESETS, CHART_WIDTH, CHART_HEIGHT } from "@/lib/svgCharts";
 import { isTypeSwitchable, renderChartSvg, type EditableChartKind } from "@/lib/chartRender";
 import type { ChartSpec } from "@/lib/types";
 import type { Kpi } from "@/lib/kpis";
+import { getDictionary, type Locale } from "@/lib/i18n";
 
 type EditableKind = EditableChartKind;
 
@@ -41,16 +42,20 @@ function blockIdFrom(prefix: string, index: number): string {
 export default function ReportEditor({
   analysis,
   file,
+  locale,
   onRequestDownload,
   onRequirePremium,
   onClose,
 }: {
   analysis: EditorAnalysis;
   file: File;
+  locale: Locale;
   onRequestDownload: () => void;
   onRequirePremium: () => void;
   onClose: () => void;
 }) {
+  const dict = getDictionary(locale);
+  const t = dict.editor;
   const [kpis, setKpis] = useState<Kpi[]>(analysis.kpis);
   const [blocks, setBlocks] = useState<Block[]>(
     analysis.charts.map((chart, i) => ({
@@ -86,8 +91,8 @@ export default function ReportEditor({
   }, []);
 
   const addNote = useCallback(() => {
-    setBlocks((prev) => [...prev, { kind: "note", id: blockIdFrom("note", prev.length), text: "Votre texte ici..." }]);
-  }, []);
+    setBlocks((prev) => [...prev, { kind: "note", id: blockIdFrom("note", prev.length), text: t.notePlaceholder }]);
+  }, [t.notePlaceholder]);
 
   const runQuery = useCallback(async () => {
     const prompt = query.trim();
@@ -98,6 +103,7 @@ export default function ReportEditor({
       const formData = new FormData();
       formData.append("file", file);
       formData.append("prompt", prompt);
+      formData.append("locale", locale);
       const res = await fetch("/api/ask-chart", { method: "POST", body: formData });
       const data = await res.json();
 
@@ -109,7 +115,7 @@ export default function ReportEditor({
       }
 
       if (!res.ok || !data.chart) {
-        setQueryStatus({ type: "error", message: data.message || "Aucun graphique trouvé pour cette demande." });
+        setQueryStatus({ type: "error", message: data.message || t.searchEmpty });
         return;
       }
 
@@ -125,20 +131,20 @@ export default function ReportEditor({
           paletteIndex: 0,
         },
       ]);
-      setQueryStatus({ type: "ok", message: data.message || "Graphique ajouté." });
+      setQueryStatus({ type: "ok", message: data.message || t.searchAdded });
       setQuery("");
     } catch {
-      setQueryStatus({ type: "error", message: "Impossible de contacter le serveur." });
+      setQueryStatus({ type: "error", message: dict.errors.server });
     }
-  }, [query, file, onRequirePremium]);
+  }, [query, file, locale, onRequirePremium, t.searchEmpty, t.searchAdded, dict.errors.server]);
 
   return (
     <div className="mx-auto w-full max-w-4xl">
       <div className="flex items-center justify-between rounded-t-2xl border border-b-0 border-gray-200 bg-white px-6 py-4">
         <div>
-          <p className="text-sm font-semibold text-gray-900">Édition — {analysis.fileName}</p>
+          <p className="text-sm font-semibold text-gray-900">{t.title} — {analysis.fileName}</p>
           <p className="text-xs text-gray-500">
-            Feuille &quot;{analysis.sheetName}&quot; • {analysis.rowCount} lignes
+            {t.sheet} &quot;{analysis.sheetName}&quot; • {analysis.rowCount} {t.rows}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -147,12 +153,12 @@ export default function ReportEditor({
             onClick={onRequestDownload}
             className="rounded-full bg-brand-600 px-5 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-700"
           >
-            Télécharger
+            {t.download}
           </button>
           <button
             type="button"
             onClick={onClose}
-            aria-label="Fermer l'édition"
+            aria-label={t.close}
             className="flex h-9 w-9 items-center justify-center rounded-full text-gray-400 hover:bg-gray-100 hover:text-gray-600"
           >
             <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2}>
@@ -164,7 +170,7 @@ export default function ReportEditor({
 
       <div className="border border-gray-200 bg-gray-50 px-6 py-4">
         <label htmlFor={searchInputId} className="mb-1.5 block text-xs font-medium text-gray-500">
-          Pas le bon graphique ? Décrivez ce que vous cherchez
+          {t.searchLabel}
         </label>
         <div className="flex gap-2">
           <input
@@ -173,7 +179,7 @@ export default function ReportEditor({
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && runQuery()}
-            placeholder='ex : "le montant par région pour le 1er semestre 2026" (période = Premium)'
+            placeholder={t.searchPlaceholder}
             className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500"
           />
           <button
@@ -182,7 +188,7 @@ export default function ReportEditor({
             disabled={queryStatus.type === "loading"}
             className="rounded-lg bg-gray-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-gray-700 disabled:opacity-50"
           >
-            {queryStatus.type === "loading" ? "Recherche…" : "Générer"}
+            {queryStatus.type === "loading" ? t.searchLoading : t.searchButton}
           </button>
         </div>
         {queryStatus.message ? (
@@ -222,7 +228,7 @@ export default function ReportEditor({
                 onClick={() => removeBlock(block.id)}
                 className="absolute right-3 top-3 text-xs font-medium text-gray-400 hover:text-red-600"
               >
-                Supprimer
+                {t.delete}
               </button>
             </div>
           ) : (
@@ -234,7 +240,7 @@ export default function ReportEditor({
                   className="flex-1 border-b border-transparent bg-transparent text-base font-semibold text-gray-900 focus:border-brand-400 focus:outline-none"
                 />
                 <button type="button" onClick={() => removeBlock(block.id)} className="text-xs font-medium text-gray-400 hover:text-red-600">
-                  Supprimer
+                  {t.delete}
                 </button>
               </div>
 
@@ -253,9 +259,9 @@ export default function ReportEditor({
                     onChange={(e) => updateBlock(block.id, { typeOverride: e.target.value as EditableKind })}
                     className="rounded-md border border-gray-300 px-2 py-1 text-xs"
                   >
-                    <option value="bar">Barres</option>
-                    <option value="line">Courbe</option>
-                    <option value="donut">Camembert</option>
+                    <option value="bar">{t.chartTypes.bar}</option>
+                    <option value="line">{t.chartTypes.line}</option>
+                    <option value="donut">{t.chartTypes.donut}</option>
                   </select>
                 ) : null}
 
@@ -290,7 +296,7 @@ export default function ReportEditor({
           onClick={addNote}
           className="w-full rounded-xl border-2 border-dashed border-gray-300 py-3 text-sm font-medium text-gray-500 transition hover:border-brand-400 hover:text-brand-700"
         >
-          + Ajouter un bloc de texte
+          {t.addNote}
         </button>
       </div>
     </div>

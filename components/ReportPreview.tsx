@@ -1,12 +1,14 @@
 import { CHART_WIDTH, CHART_HEIGHT, PALETTE } from "@/lib/svgCharts";
 import { renderChartSvg } from "@/lib/chartRender";
 import type { EditorAnalysis } from "./ReportEditor";
+import { getDictionary, type Locale } from "@/lib/i18n";
 
-export default function ReportPreview({ analysis }: { analysis: EditorAnalysis }) {
+export default function ReportPreview({ analysis, locale }: { analysis: EditorAnalysis; locale: Locale }) {
+  const t = getDictionary(locale).editor;
   return (
     <div className="mt-6 rounded-xl border border-gray-200 bg-white p-5 text-left">
       <p className="text-xs text-gray-500">
-        Feuille &quot;{analysis.sheetName}&quot; • {analysis.rowCount} lignes
+        {t.sheet} &quot;{analysis.sheetName}&quot; • {analysis.rowCount} {t.rows}
       </p>
 
       <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">

@@ -1,10 +1,8 @@
-const BADGES = [
-  { label: "Fichier jamais stocké", icon: "lock" as const },
-  { label: "Supprimé après le rapport", icon: "trash" as const },
-  { label: "Aucun compte requis", icon: "user" as const },
-];
+import { getDictionary, type Locale } from "@/lib/i18n";
 
-function BadgeIcon({ icon }: { icon: "lock" | "trash" | "user" }) {
+const ICONS = ["lock", "trash", "user"] as const;
+
+function BadgeIcon({ icon }: { icon: (typeof ICONS)[number] }) {
   return (
     <svg viewBox="0 0 24 24" className="h-4 w-4 flex-shrink-0 text-brand-600" fill="none" stroke="currentColor" strokeWidth={2}>
       {icon === "lock" ? (
@@ -26,24 +24,23 @@ function BadgeIcon({ icon }: { icon: "lock" | "trash" | "user" }) {
 
 // Sits directly under the upload card: the reassurance has to be visible at
 // the exact moment someone is deciding whether to hand over their file.
-export default function PrivacyBadges() {
+export default function PrivacyBadges({ locale }: { locale: Locale }) {
+  const { privacy } = getDictionary(locale);
+
   return (
     <div className="mt-6">
       <div className="flex flex-wrap items-center justify-center gap-2">
-        {BADGES.map((badge) => (
+        {privacy.badges.map((label, i) => (
           <span
-            key={badge.label}
+            key={label}
             className="flex items-center gap-1.5 rounded-full border border-brand-200 bg-brand-50 px-3.5 py-1.5 text-sm font-semibold text-brand-700"
           >
-            <BadgeIcon icon={badge.icon} />
-            {badge.label}
+            <BadgeIcon icon={ICONS[i] ?? "lock"} />
+            {label}
           </span>
         ))}
       </div>
-      <p className="mx-auto mt-3 max-w-md text-center text-xs text-gray-500">
-        Votre fichier sert uniquement à calculer vos graphiques, puis il est supprimé. Rien n&apos;est conservé, rien n&apos;est
-        transmis.
-      </p>
+      <p className="mx-auto mt-3 max-w-md text-center text-xs text-gray-500">{privacy.note}</p>
     </div>
   );
 }

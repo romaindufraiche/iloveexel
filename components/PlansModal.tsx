@@ -1,54 +1,19 @@
 "use client";
 
 import { useEffect } from "react";
+import { getDictionary, type Locale } from "@/lib/i18n";
 
-interface Plan {
-  name: string;
-  tagline: string;
-  benefits: string[];
-  highlighted?: boolean;
-  badge?: string;
-}
+export type PlansReason = "download" | "account" | "query";
 
-const PLANS: Plan[] = [
-  {
-    name: "Étudiant",
-    tagline: "Avec une adresse universitaire",
-    badge: "-50 %",
-    benefits: ["50 générations par jour", "Tous les avantages du plan Analyste", "Sur justificatif de scolarité"],
-  },
-  {
-    name: "Analyste",
-    tagline: "Connecté",
-    benefits: ["50 générations par jour", "Recherche par période", "Téléchargement des rapports personnalisés"],
-    highlighted: true,
-  },
-  {
-    name: "Expert",
-    tagline: "Connecté",
-    benefits: ["Générations illimitées", "Accès API", "Tous les avantages du plan Analyste"],
-  },
-];
-
-const REASON_COPY: Record<"download" | "account" | "query", { badge: string; heading: string; description: string }> = {
-  download: {
-    badge: "Compte requis",
-    heading: "Le téléchargement de ce rapport personnalisé nécessite un compte",
-    description: "Vous pouvez continuer à personnaliser votre rapport gratuitement — pour le télécharger, connectez-vous.",
-  },
-  account: {
-    badge: "Bientôt disponible",
-    heading: "Connectez-vous pour aller plus loin",
-    description: "Plus de volume et l'accès API, dès que vous en avez besoin.",
-  },
-  query: {
-    badge: "Compte requis",
-    heading: "Interroger vos données par période nécessite un compte",
-    description: 'Demander un graphique sur une période précise ("1er semestre 2026", "T3 2024"...) au sein d\'un fichier de plusieurs années est une fonctionnalité Analyste et Expert.',
-  },
-};
-
-export default function PlansModal({ onClose, reason = "account" }: { onClose: () => void; reason?: "download" | "account" | "query" }) {
+export default function PlansModal({
+  onClose,
+  locale,
+  reason = "account",
+}: {
+  onClose: () => void;
+  locale: Locale;
+  reason?: PlansReason;
+}) {
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
@@ -57,7 +22,8 @@ export default function PlansModal({ onClose, reason = "account" }: { onClose: (
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [onClose]);
 
-  const copy = REASON_COPY[reason];
+  const { plans } = getDictionary(locale);
+  const copy = plans.reasons[reason];
 
   return (
     <div
@@ -65,13 +31,13 @@ export default function PlansModal({ onClose, reason = "account" }: { onClose: (
       onClick={onClose}
       role="dialog"
       aria-modal="true"
-      aria-label="Comptes et forfaits"
+      aria-label={copy.heading}
     >
       <div className="relative max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-2xl bg-white p-8 shadow-xl" onClick={(e) => e.stopPropagation()}>
         <button
           type="button"
           onClick={onClose}
-          aria-label="Fermer"
+          aria-label={plans.close}
           className="absolute right-4 top-4 flex h-8 w-8 items-center justify-center rounded-full text-gray-400 hover:bg-gray-100 hover:text-gray-600"
         >
           <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2}>
@@ -84,7 +50,7 @@ export default function PlansModal({ onClose, reason = "account" }: { onClose: (
         <p className="mt-1 text-sm text-gray-600">{copy.description}</p>
 
         <div className="mt-6 grid gap-4 sm:grid-cols-3">
-          {PLANS.map((plan) => (
+          {plans.list.map((plan) => (
             <div
               key={plan.name}
               className={`rounded-xl border p-4 ${plan.highlighted ? "border-2 border-brand-500" : "border-gray-200"}`}
@@ -115,7 +81,7 @@ export default function PlansModal({ onClose, reason = "account" }: { onClose: (
           disabled
           className="mt-6 block w-full cursor-not-allowed rounded-full bg-gray-100 px-6 py-3 text-center text-sm font-semibold text-gray-400"
         >
-          Se connecter — bientôt disponible
+          {plans.cta}
         </button>
       </div>
     </div>

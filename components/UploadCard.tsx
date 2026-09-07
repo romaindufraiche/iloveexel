@@ -1,21 +1,17 @@
 "use client";
 
 import { useCallback, useRef, useState } from "react";
-import PlansModal from "./PlansModal";
+import PlansModal, { type PlansReason } from "./PlansModal";
 import ReportEditor, { type EditorAnalysis } from "./ReportEditor";
 import ReportPreview from "./ReportPreview";
+import { getDictionary, type Locale } from "@/lib/i18n";
 
 type Status = "idle" | "dragging" | "uploading" | "success" | "error" | "limit";
 type ExportFormat = "pdf" | "pptx" | "png";
 
 const ALLOWED_EXTENSIONS = [".xlsx", ".xls", ".xlsm", ".csv"];
 const MAX_SIZE_MB = 20;
-
-const FORMATS: { id: ExportFormat; label: string; hint: string }[] = [
-  { id: "pdf", label: "PDF", hint: "Rapport complet" },
-  { id: "pptx", label: "PowerPoint", hint: "Slides éditables" },
-  { id: "png", label: "Image", hint: "À partager" },
-];
+const FORMAT_IDS: ExportFormat[] = ["pdf", "pptx", "png"];
 
 function hasAllowedExtension(name: string): boolean {
   const lower = name.toLowerCase();
@@ -28,7 +24,10 @@ function extractFileName(disposition: string | null, fallback: string): string {
   return match ? match[1] : fallback;
 }
 
-export default function UploadCard() {
+export default function UploadCard({ locale }: { locale: Locale }) {
+  const dict = getDictionary(locale);
+  const t = dict.upload;
+
   const [status, setStatus] = useState<Status>("idle");
   const [progress, setProgress] = useState(0);
   const [fileName, setFileName] = useState<string>("");
@@ -36,7 +35,7 @@ export default function UploadCard() {
   const [downloadUrl, setDownloadUrl] = useState<string>("");
   const [downloadName, setDownloadName] = useState<string>("");
   const [format, setFormat] = useState<ExportFormat>("pdf");
-  const [plansModalReason, setPlansModalReason] = useState<"download" | "account" | "query" | null>(null);
+  const [plansModalReason, setPlansModalReason] = useState<PlansReason | null>(null);
   const [lastFile, setLastFile] = useState<File | null>(null);
   const [reportAnalysis, setReportAnalysis] = useState<EditorAnalysis | null>(null);
   const [isEditing, setIsEditing] = useState(false);
@@ -53,30 +52,34 @@ export default function UploadCard() {
     setIsEditing(false);
   }, []);
 
-  const fetchPreview = useCallback(async (file: File) => {
-    try {
-      const formData = new FormData();
-      formData.append("file", file);
-      formData.append("format", "json");
-      const res = await fetch("/api/analyze", { method: "POST", body: formData });
-      if (!res.ok) return;
-      const data = await res.json();
-      setReportAnalysis(data as EditorAnalysis);
-    } catch {
-      // Preview is a bonus on top of the already-downloaded file — fail silently.
-    }
-  }, []);
+  const fetchPreview = useCallback(
+    async (file: File) => {
+      try {
+        const formData = new FormData();
+        formData.append("file", file);
+        formData.append("format", "json");
+        formData.append("locale", locale);
+        const res = await fetch("/api/analyze", { method: "POST", body: formData });
+        if (!res.ok) return;
+        const data = await res.json();
+        setReportAnalysis(data as EditorAnalysis);
+      } catch {
+        // Preview is a bonus on top of the already-downloaded file — fail silently.
+      }
+    },
+    [locale]
+  );
 
   const uploadFile = useCallback(
     (file: File) => {
       if (!hasAllowedExtension(file.name)) {
         setStatus("error");
-        setErrorMessage("Format non supporté. Utilisez un fichier .xlsx, .xls, .xlsm ou .csv.");
+        setErrorMessage(dict.errors.unsupportedFormat);
         return;
       }
       if (file.size > MAX_SIZE_MB * 1024 * 1024) {
         setStatus("error");
-        setErrorMessage(`Le fichier dépasse la taille maximale autorisée (${MAX_SIZE_MB} Mo).`);
+        setErrorMessage(dict.errors.tooLarge);
         return;
       }
 
@@ -89,6 +92,7 @@ export default function UploadCard() {
       const formData = new FormData();
       formData.append("file", file);
       formData.append("format", format);
+      formData.append("locale", locale);
 
       const xhr = new XMLHttpRequest();
       xhr.open("POST", "/api/analyze");
@@ -119,7 +123,7 @@ export default function UploadCard() {
         } else if (xhr.status === 429) {
           setStatus("limit");
         } else {
-          let message = "Une erreur est survenue lors de l'analyse du fichier.";
+          let message = dict.errors.generic;
           try {
             const text = await xhr.response.text();
             const parsed = JSON.parse(text);
@@ -134,12 +138,12 @@ export default function UploadCard() {
 
       xhr.onerror = () => {
         setStatus("error");
-        setErrorMessage("Impossible de contacter le serveur. Vérifiez votre connexion et réessayez.");
+        setErrorMessage(dict.errors.network);
       };
 
       xhr.send(formData);
     },
-    [format, fetchPreview]
+    [format, fetchPreview, locale, dict.errors]
   );
 
   const onDrop = useCallback(
@@ -178,11 +182,14 @@ export default function UploadCard() {
         <ReportEditor
           analysis={reportAnalysis}
           file={lastFile}
+          locale={locale}
           onRequestDownload={() => setPlansModalReason("download")}
           onRequirePremium={() => setPlansModalReason("query")}
           onClose={() => setIsEditing(false)}
         />
-        {plansModalReason ? <PlansModal onClose={() => setPlansModalReason(null)} reason={plansModalReason} /> : null}
+        {plansModalReason ? (
+          <PlansModal onClose={() => setPlansModalReason(null)} reason={plansModalReason} locale={locale} />
+        ) : null}
       </>
     );
   }
@@ -209,14 +216,14 @@ export default function UploadCard() {
                 <path d="M20 16.5v2A2.5 2.5 0 0117.5 21h-11A2.5 2.5 0 014 18.5v-2" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
             </div>
-            <p className="text-lg font-semibold text-gray-800">Glissez-déposez votre fichier Excel ici</p>
-            <p className="mt-1 text-sm text-gray-500">ou cliquez pour parcourir vos fichiers — .xlsx, .xls, .xlsm, .csv</p>
+            <p className="text-lg font-semibold text-gray-800">{t.dropTitle}</p>
+            <p className="mt-1 text-sm text-gray-500">{t.dropHint}</p>
             <button
               type="button"
               onClick={() => inputRef.current?.click()}
               className="mt-6 inline-flex items-center rounded-full bg-brand-600 px-6 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-700"
             >
-              Sélectionner un fichier
+              {t.selectFile}
             </button>
             <input ref={inputRef} type="file" accept=".xlsx,.xls,.xlsm,.csv" onChange={onFileSelect} className="hidden" />
           </>
@@ -224,8 +231,10 @@ export default function UploadCard() {
 
         {status === "uploading" ? (
           <div>
-            <p className="text-lg font-semibold text-gray-800">Analyse de {fileName}…</p>
-            <p className="mt-1 text-sm text-gray-500">Notre moteur détecte vos indicateurs clés et construit vos graphiques.</p>
+            <p className="text-lg font-semibold text-gray-800">
+              {t.analyzing} {fileName}…
+            </p>
+            <p className="mt-1 text-sm text-gray-500">{t.analyzingHint}</p>
             <div className="mx-auto mt-6 h-2 w-full max-w-sm overflow-hidden rounded-full bg-brand-100">
               <div
                 className="h-full rounded-full bg-brand-500 transition-all duration-200"
@@ -242,14 +251,14 @@ export default function UploadCard() {
                 <path d="M5 13l4 4L19 7" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
             </div>
-            <p className="text-lg font-semibold text-gray-800">Votre rapport est prêt !</p>
-            <p className="mt-1 text-sm text-gray-500">Le téléchargement a démarré automatiquement.</p>
+            <p className="text-lg font-semibold text-gray-800">{t.readyTitle}</p>
+            <p className="mt-1 text-sm text-gray-500">{t.readyHint}</p>
 
             {reportAnalysis ? (
-              <ReportPreview analysis={reportAnalysis} />
+              <ReportPreview analysis={reportAnalysis} locale={locale} />
             ) : (
               <div className="mt-6 rounded-lg border border-dashed border-gray-300 bg-gray-50 py-8 text-sm text-gray-500">
-                Génération de l&apos;aperçu…
+                {t.previewLoading}
               </div>
             )}
 
@@ -259,7 +268,7 @@ export default function UploadCard() {
                 download={downloadName}
                 className="inline-flex flex-1 items-center justify-center rounded-full bg-brand-600 px-6 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-700"
               >
-                Télécharger {format === "pdf" ? "le PDF" : format === "pptx" ? "le PowerPoint" : "l'image"}
+                {t.download[format]}
               </a>
               <button
                 type="button"
@@ -267,11 +276,11 @@ export default function UploadCard() {
                 disabled={!reportAnalysis}
                 className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-full border border-gray-200 px-6 py-3 text-sm font-semibold text-gray-700 transition hover:border-brand-300 hover:text-brand-700 disabled:opacity-60"
               >
-                {reportAnalysis ? "Modifier" : "Chargement…"}
+                {reportAnalysis ? t.edit : t.editLoading}
               </button>
             </div>
             <button type="button" onClick={reset} className="mt-4 block w-full text-sm font-medium text-gray-500 hover:text-brand-700">
-              Analyser un autre fichier
+              {t.another}
             </button>
           </div>
         ) : null}
@@ -287,14 +296,14 @@ export default function UploadCard() {
                 />
               </svg>
             </div>
-            <p className="text-lg font-semibold text-gray-800">Oups, une erreur est survenue</p>
+            <p className="text-lg font-semibold text-gray-800">{t.errorTitle}</p>
             <p className="mt-1 text-sm text-gray-500">{errorMessage}</p>
             <button
               type="button"
               onClick={reset}
               className="mt-6 inline-flex items-center rounded-full bg-brand-600 px-6 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-700"
             >
-              Réessayer
+              {t.retry}
             </button>
           </div>
         ) : null}
@@ -306,16 +315,14 @@ export default function UploadCard() {
                 <path d="M12 8v4l2.5 2.5M12 21a9 9 0 100-18 9 9 0 000 18z" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
             </div>
-            <p className="text-lg font-semibold text-gray-800">Limite gratuite atteinte pour aujourd&apos;hui</p>
-            <p className="mt-1 text-sm text-gray-500">
-              Vous avez utilisé vos analyses gratuites du jour. Revenez demain, ou connectez-vous pour plus de volume.
-            </p>
+            <p className="text-lg font-semibold text-gray-800">{t.limitTitle}</p>
+            <p className="mt-1 text-sm text-gray-500">{t.limitHint}</p>
             <button
               type="button"
               onClick={() => setPlansModalReason("account")}
               className="mt-6 inline-flex items-center rounded-full bg-brand-600 px-6 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-700"
             >
-              Voir les offres
+              {t.limitCta}
             </button>
           </div>
         ) : null}
@@ -323,23 +330,23 @@ export default function UploadCard() {
 
       {showFormatPicker ? (
         <div className="mt-4 flex items-center justify-center gap-2">
-          {FORMATS.map((f) => (
+          {FORMAT_IDS.map((id) => (
             <button
-              key={f.id}
+              key={id}
               type="button"
-              onClick={() => setFormat(f.id)}
+              onClick={() => setFormat(id)}
               className={`rounded-full px-4 py-1.5 text-sm font-medium transition ${
-                format === f.id ? "bg-brand-600 text-white shadow-sm" : "bg-white text-gray-600 border border-gray-200 hover:border-brand-300"
+                format === id ? "bg-brand-600 text-white shadow-sm" : "bg-white text-gray-600 border border-gray-200 hover:border-brand-300"
               }`}
-              title={f.hint}
+              title={t.formatHints[id]}
             >
-              {f.label}
+              {t.formats[id]}
             </button>
           ))}
         </div>
       ) : null}
 
-      {plansModalReason ? <PlansModal onClose={() => setPlansModalReason(null)} reason={plansModalReason} /> : null}
+      {plansModalReason ? <PlansModal onClose={() => setPlansModalReason(null)} reason={plansModalReason} locale={locale} /> : null}
     </div>
   );
 }
