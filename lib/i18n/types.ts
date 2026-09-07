@@ -109,6 +109,8 @@ export interface Dictionary {
     totals: string;
     was: string;
     close: string;
+    download: string;
+    downloading: string;
   };
   plans: {
     reasons: { download: ReasonCopy; account: ReasonCopy; query: ReasonCopy };

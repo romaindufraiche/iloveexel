@@ -43,6 +43,7 @@ export default function UploadCard({ locale }: { locale: Locale }) {
   const [isEditing, setIsEditing] = useState(false);
   const [comparison, setComparison] = useState<ComparisonResult | null>(null);
   const [comparing, setComparing] = useState(false);
+  const [comparedWith, setComparedWith] = useState<File | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const compareInputRef = useRef<HTMLInputElement>(null);
 
@@ -94,6 +95,7 @@ export default function UploadCard({ locale }: { locale: Locale }) {
           return;
         }
         setComparison(data as ComparisonResult);
+        setComparedWith(previousFile);
       } catch {
         setStatus("error");
         setErrorMessage(dict.errors.server);
@@ -211,7 +213,14 @@ export default function UploadCard({ locale }: { locale: Locale }) {
   const showFormatPicker = status === "idle" || status === "dragging";
 
   if (comparison) {
-    return <ComparisonReport result={comparison} locale={locale} onClose={() => setComparison(null)} />;
+    return (
+      <ComparisonReport
+        result={comparison}
+        files={lastFile && comparedWith ? { current: lastFile, previous: comparedWith } : null}
+        locale={locale}
+        onClose={() => setComparison(null)}
+      />
+    );
   }
 
   if (isEditing && reportAnalysis && lastFile) {

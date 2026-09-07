@@ -2,6 +2,9 @@ import PDFDocument from "pdfkit";
 import SVGtoPDF from "svg-to-pdfkit";
 import { barChart, donutChart, heatmapChart, lineChart, scatterChart, CHART_HEIGHT, CHART_WIDTH } from "./svgCharts";
 import type { AnalysisResult, ChartSpec, TableChart } from "./types";
+import type { ComparisonResult } from "./compare";
+import { compareText } from "./compareText";
+import { DEFAULT_LOCALE, type Locale } from "./i18n/config";
 import { formatNumber } from "./format";
 import { buildKpis } from "./kpis";
 
@@ -221,6 +224,125 @@ export async function generatePdfReport(analysis: AnalysisResult): Promise<Buffe
     drawFooter(doc, `Page ${pageIndex}`);
   }
 
+  doc.end();
+  return done;
+}
+
+
+// The comparison report as a PDF. Same visual language as the analysis
+// report, but led by the written verdict rather than by charts — the point
+// of this document is what moved, not what the data looks like.
+export async function generateComparisonPdf(result: ComparisonResult, locale: Locale = DEFAULT_LOCALE): Promise<Buffer> {
+  const text = compareText(locale);
+  const doc = new PDFDocument({ size: "A4", margin: PAGE_MARGIN, bufferPages: true });
+  const chunks: Buffer[] = [];
+  doc.on("data", (chunk: Buffer) => chunks.push(chunk));
+  const done = new Promise<Buffer>((resolve) => {
+    doc.on("end", () => resolve(Buffer.concat(chunks)));
+  });
+
+  const contentWidth = doc.page.width - PAGE_MARGIN * 2;
+
+  doc
+    .fontSize(10)
+    .fillColor(GREEN)
+    .font("Helvetica-Bold")
+    .text(BRAND_NAME.toUpperCase(), PAGE_MARGIN, PAGE_MARGIN, { characterSpacing: 1.5 });
+  doc
+    .fontSize(19)
+    .fillColor(DARK)
+    .font("Helvetica-Bold")
+    .text(text.reportTitle(result.previousName, result.currentName), PAGE_MARGIN, doc.y + 4, { width: contentWidth });
+  doc
+    .fontSize(10)
+    .fillColor(GRAY)
+    .font("Helvetica")
+    .text(text.generatedOn(new Date().toLocaleDateString(locale === "fr" ? "fr-FR" : "en-GB")), PAGE_MARGIN, doc.y + 2, {
+      width: contentWidth,
+    });
+  doc
+    .moveTo(PAGE_MARGIN, doc.y + 10)
+    .lineTo(doc.page.width - PAGE_MARGIN, doc.y + 10)
+    .strokeColor("#e5e7eb")
+    .stroke();
+  doc.y += 24;
+
+  // ---------- The verdict, first ----------
+  doc.fontSize(13).font("Helvetica-Bold").fillColor(DARK).text(text.summaryTitle, PAGE_MARGIN, doc.y, { width: contentWidth });
+  doc.moveDown(0.4);
+  doc.fontSize(10).font("Helvetica").fillColor(DARK);
+  for (const line of result.highlights) {
+    doc.text(`•  ${line}`, PAGE_MARGIN, doc.y, { width: contentWidth, lineGap: 2 });
+    doc.moveDown(0.25);
+  }
+  doc.y += 10;
+
+  // ---------- Totals, before and after ----------
+  if (result.metrics.length > 0) {
+    doc.fontSize(13).font("Helvetica-Bold").fillColor(DARK).text(text.totalsTitle, PAGE_MARGIN, doc.y, { width: contentWidth });
+    doc.moveDown(0.4);
+
+    const shown = result.metrics.slice(0, 4);
+    const gap = 12;
+    const cardWidth = (contentWidth - gap * (shown.length - 1)) / shown.length;
+    const cardY = doc.y;
+    shown.forEach((metric, i) => {
+      const sign = metric.delta >= 0 ? "+" : "";
+      const percent = metric.percent === null ? "" : ` (${sign}${formatNumber(metric.percent, locale)} %)`;
+      drawKpiCard(
+        doc,
+        PAGE_MARGIN + i * (cardWidth + gap),
+        cardY,
+        cardWidth,
+        `${metric.name} — ${text.tableColumns.before} ${formatNumber(metric.previous, locale)}`,
+        `${formatNumber(metric.current, locale)}  ${sign}${formatNumber(metric.delta, locale)}${percent}`
+      );
+    });
+    doc.y = cardY + 60 + 20;
+  }
+
+  // ---------- Charts ----------
+  const scale = contentWidth / CHART_WIDTH;
+  const renderedHeight = CHART_HEIGHT * scale;
+  let pageIndex = 1;
+
+  for (const chart of result.charts) {
+    doc.fontSize(13).font("Helvetica-Bold");
+    const titleHeight = doc.heightOfString(chart.title, { width: contentWidth });
+    doc.fontSize(10).font("Helvetica-Oblique");
+    const insightHeight = doc.heightOfString(chart.insight, { width: contentWidth, lineGap: 2 });
+    const bodyHeight = chart.kind === "table" ? estimateTableRowsHeight(chart) : renderedHeight;
+    const blockHeight = titleHeight + 5 + bodyHeight + 8 + insightHeight + 25;
+
+    if (blockHeight > doc.page.height - doc.page.margins.bottom - doc.y) {
+      drawFooter(doc, `Page ${pageIndex}`);
+      pageIndex++;
+      doc.addPage();
+    }
+
+    doc.fontSize(13).font("Helvetica-Bold").fillColor(DARK).text(chart.title, PAGE_MARGIN, doc.y, { width: contentWidth });
+    doc.moveDown(0.3);
+
+    if (chart.kind === "table") {
+      drawTable(doc, chart, PAGE_MARGIN, contentWidth);
+      doc.y += 8;
+    } else {
+      SVGtoPDF(doc, chartToSvg(chart), PAGE_MARGIN, doc.y, {
+        width: contentWidth,
+        height: renderedHeight,
+        preserveAspectRatio: "xMidYMid meet",
+      });
+      doc.y += renderedHeight + 8;
+    }
+
+    doc.fontSize(10).font("Helvetica-Oblique").fillColor(GRAY).text(chart.insight, PAGE_MARGIN, doc.y, {
+      width: contentWidth,
+      lineGap: 2,
+    });
+    doc.y += 15;
+  }
+
+  drawFooter(doc, `Page ${pageIndex}`);
   doc.end();
   return done;
 }

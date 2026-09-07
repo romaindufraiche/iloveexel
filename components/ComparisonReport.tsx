@@ -2,10 +2,12 @@
 
 import { CHART_WIDTH, CHART_HEIGHT, PALETTE } from "@/lib/svgCharts";
 import { renderChartSvg } from "@/lib/chartRender";
+import { useCallback, useState } from "react";
 import { getDictionary, type Locale } from "@/lib/i18n";
 import type { ComparisonResult } from "@/lib/compare";
+import { formatNumber } from "@/lib/format";
 
-function Delta({ value, percent }: { value: number; percent: number | null }) {
+function Delta({ value, percent, locale }: { value: number; percent: number | null; locale: Locale }) {
   const up = value > 0;
   const flat = value === 0;
   const tone = flat ? "text-gray-500" : up ? "text-brand-700" : "text-red-600";
@@ -13,11 +15,11 @@ function Delta({ value, percent }: { value: number; percent: number | null }) {
 
   return (
     <span className={`text-sm font-semibold ${tone}`}>
-      {flat ? "=" : `${sign}${value.toLocaleString("fr-FR", { maximumFractionDigits: 2 })}`}
+      {flat ? "=" : `${sign}${formatNumber(value, locale)}`}
       {percent !== null && !flat ? (
         <span className="ml-1 text-xs font-medium">
           ({sign}
-          {percent.toLocaleString("fr-FR", { maximumFractionDigits: 1 })} %)
+          {formatNumber(percent, locale)} %)
         </span>
       ) : null}
     </span>
@@ -26,14 +28,45 @@ function Delta({ value, percent }: { value: number; percent: number | null }) {
 
 export default function ComparisonReport({
   result,
+  files,
   locale,
   onClose,
 }: {
   result: ComparisonResult;
+  files: { current: File; previous: File } | null;
   locale: Locale;
   onClose: () => void;
 }) {
   const t = getDictionary(locale).compare;
+  const [downloading, setDownloading] = useState(false);
+
+  // The PDF is regenerated server-side from the two files rather than from
+  // what is on screen, so the document and the page always agree.
+  const download = useCallback(async () => {
+    if (!files) return;
+    setDownloading(true);
+    try {
+      const formData = new FormData();
+      formData.append("current", files.current);
+      formData.append("previous", files.previous);
+      formData.append("locale", locale);
+      formData.append("format", "pdf");
+      const res = await fetch("/api/compare", { method: "POST", body: formData });
+      if (!res.ok) return;
+
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = locale === "fr" ? "comparaison.pdf" : "comparison.pdf";
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } finally {
+      setDownloading(false);
+    }
+  }, [files, locale]);
 
   return (
     <div className="mx-auto w-full max-w-4xl text-left">
@@ -45,6 +78,17 @@ export default function ComparisonReport({
             <span className="font-medium text-gray-700">{result.currentName}</span>
           </p>
         </div>
+        <div className="flex items-center gap-2">
+          {files ? (
+            <button
+              type="button"
+              onClick={download}
+              disabled={downloading}
+              className="rounded-full bg-brand-600 px-5 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-700 disabled:opacity-60"
+            >
+              {downloading ? t.downloading : t.download}
+            </button>
+          ) : null}
         <button
           type="button"
           onClick={onClose}
@@ -55,6 +99,7 @@ export default function ComparisonReport({
             <path d="M6 6l12 12M18 6L6 18" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
         </button>
+        </div>
       </div>
 
       <div className="space-y-6 rounded-b-2xl border border-t-0 border-gray-200 bg-white p-6">
@@ -79,12 +124,12 @@ export default function ComparisonReport({
                   <p className="text-xs font-medium text-gray-500">{metric.name}</p>
                   <div className="mt-1 flex items-baseline gap-2">
                     <span className="text-lg font-bold text-gray-900">
-                      {metric.current.toLocaleString("fr-FR", { maximumFractionDigits: 2 })}
+                      {formatNumber(metric.current, locale)}
                     </span>
-                    <Delta value={metric.delta} percent={metric.percent} />
+                    <Delta value={metric.delta} percent={metric.percent} locale={locale} />
                   </div>
                   <p className="mt-0.5 text-xs text-gray-400">
-                    {t.was} {metric.previous.toLocaleString("fr-FR", { maximumFractionDigits: 2 })}
+                    {t.was} {formatNumber(metric.previous, locale)}
                   </p>
                 </div>
               ))}

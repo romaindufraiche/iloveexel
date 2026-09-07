@@ -207,6 +207,8 @@ export const fr: Dictionary = {
     totals: "Totaux",
     was: "auparavant",
     close: "Fermer la comparaison",
+    download: "Télécharger cette comparaison (PDF)",
+    downloading: "Génération…",
   },
 
   plans: {

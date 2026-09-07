@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import { compareWorkbooks } from "@/lib/compare";
-import { isLocale, DEFAULT_LOCALE } from "@/lib/i18n";
+import { compareText } from "@/lib/compareText";
+import { generateComparisonPdf } from "@/lib/pdfReport";
+import { consumeQuota, getClientKey, peekQuota } from "@/lib/rateLimiter";
+import { isLocale, DEFAULT_LOCALE, getDictionary } from "@/lib/i18n";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -48,6 +51,7 @@ export async function POST(request: Request) {
   const locale = typeof localeField === "string" && isLocale(localeField) ? localeField : DEFAULT_LOCALE;
   const errors = COMPARE_ERRORS[locale];
 
+  const wantsPdf = formData.get("format") === "pdf";
   const current = formData.get("current");
   const previous = formData.get("previous");
 
@@ -56,6 +60,19 @@ export async function POST(request: Request) {
   }
   if (!isAcceptable(current) || !isAcceptable(previous)) {
     return NextResponse.json({ error: errors.badFile }, { status: 400 });
+  }
+
+  // Viewing the comparison is free like the rest of the exploration; taking
+  // the document away is what costs a generation.
+  const clientKey = getClientKey(request);
+  if (wantsPdf) {
+    const quotaBefore = peekQuota(clientKey);
+    if (quotaBefore.remaining <= 0) {
+      return NextResponse.json(
+        { error: getDictionary(locale).upload.limitHint },
+        { status: 429, headers: { "X-RateLimit-Remaining": "0", "X-RateLimit-Limit": String(quotaBefore.limit) } }
+      );
+    }
   }
 
   try {
@@ -68,13 +85,33 @@ export async function POST(request: Request) {
       previousBuffer,
       currentBuffer,
       sanitizeFileName(previous.name),
-      sanitizeFileName(current.name)
+      sanitizeFileName(current.name),
+      locale
     );
+
+    if (wantsPdf) {
+      const pdf = await generateComparisonPdf(result, locale);
+      const quota = consumeQuota(clientKey);
+      const prefix = locale === "fr" ? "comparaison" : "comparison";
+      const downloadName = `${prefix}-${sanitizeFileName(current.name).replace(/\.[^.]+$/, "")}.pdf`;
+      return new NextResponse(new Uint8Array(pdf), {
+        headers: {
+          "Content-Type": "application/pdf",
+          "Content-Disposition": `attachment; filename="${downloadName}"`,
+          "Cache-Control": "no-store",
+          "X-RateLimit-Remaining": String(quota.remaining),
+        },
+      });
+    }
+
     return NextResponse.json(result, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     // The engine's own "no shared columns" message is written for the reader
-    // and safe to show; anything else is logged and replaced.
-    const message = error instanceof Error && error.message.includes("colonne en commun") ? error.message : errors.failed;
+    // and safe to show; anything else is logged and replaced. Matched against
+    // the localized string rather than French text, which would silently stop
+    // matching on the English site.
+    const explained = compareText(locale).noSharedColumns;
+    const message = error instanceof Error && error.message === explained ? explained : errors.failed;
     if (message === errors.failed) console.error("compare route error:", error);
     return NextResponse.json({ error: message }, { status: 422 });
   }

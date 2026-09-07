@@ -7,6 +7,8 @@ import {
   scoreCategoryColumn,
 } from "./analyzer";
 import type { ChartSpec, ColumnProfile } from "./types";
+import { compareText, type CompareText } from "./compareText";
+import { DEFAULT_LOCALE, type Locale } from "./i18n/config";
 
 // Comparing two exports of the same report answers the question a monthly
 // reporting loop actually asks — "what moved since last time?" — which no
@@ -63,12 +65,12 @@ function percentChange(previous: number, current: number): number | null {
   return ((current - previous) / Math.abs(previous)) * 100;
 }
 
-function signed(value: number): string {
-  return `${value >= 0 ? "+" : ""}${formatNumber(value)}`;
+function signed(value: number, locale: Locale): string {
+  return `${value >= 0 ? "+" : ""}${formatNumber(value, locale)}`;
 }
 
-function signedPercent(percent: number | null): string {
-  return percent === null ? "n/a" : `${percent >= 0 ? "+" : ""}${formatNumber(percent)} %`;
+function signedPercent(percent: number | null, locale: Locale): string {
+  return percent === null ? "n/a" : `${percent >= 0 ? "+" : ""}${formatNumber(percent, locale)} %`;
 }
 
 function totalFor(rows: Record<string, unknown>[], name: string): number {
@@ -127,40 +129,56 @@ function buildMovements(
   return movements.sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta));
 }
 
-function buildVariationChart(movements: CategoryMovement[], categoryName: string, metricName: string): ChartSpec | null {
+function buildVariationChart(
+  movements: CategoryMovement[],
+  categoryName: string,
+  metricName: string,
+  locale: Locale,
+  text: CompareText
+): ChartSpec | null {
   const shown = movements.slice(0, 8).filter((m) => m.delta !== 0);
   if (shown.length === 0) return null;
 
   const leader = shown[0];
   return {
     kind: "bar",
-    title: `Variation de ${metricName} par ${categoryName}`,
+    title: text.variationTitle(metricName, categoryName),
     insight:
       leader.status === "appeared"
-        ? `"${leader.label}" apparaît dans le fichier récent (${formatNumber(leader.current)}).`
+        ? text.leaderAppeared(leader.label, formatNumber(leader.current, locale))
         : leader.status === "disappeared"
-          ? `"${leader.label}" a disparu du fichier récent (${formatNumber(leader.previous)} auparavant).`
-          : `"${leader.label}" explique le plus gros écart : ${signed(leader.delta)} (${signedPercent(leader.percent)}).`,
+          ? text.leaderDisappeared(leader.label, formatNumber(leader.previous, locale))
+          : text.leaderExplains(leader.label, signed(leader.delta, locale), signedPercent(leader.percent, locale)),
     labels: shown.map((m) => m.label),
     values: shown.map((m) => m.delta),
-    seriesLabel: `Écart de ${metricName}`,
+    seriesLabel: text.variationSeries(metricName),
     palette: shown.map((m) => (m.delta >= 0 ? POSITIVE : NEGATIVE)),
   };
 }
 
-function buildSideBySideTable(movements: CategoryMovement[], categoryName: string, metricName: string): ChartSpec {
+function buildSideBySideTable(
+  movements: CategoryMovement[],
+  categoryName: string,
+  metricName: string,
+  locale: Locale,
+  text: CompareText
+): ChartSpec {
   const shown = movements.slice(0, MAX_MOVEMENTS);
   return {
     kind: "table",
-    title: `${metricName} : avant / après par ${categoryName}`,
-    insight: `Les ${shown.length} plus gros mouvements, du plus important au plus faible.`,
-    columns: [categoryName, "Avant", "Après", "Écart", "%"],
+    title: text.beforeAfterTitle(metricName, categoryName),
+    insight: text.beforeAfterInsight(shown.length),
+    columns: [categoryName, text.tableColumns.before, text.tableColumns.after, text.tableColumns.delta, text.tableColumns.percent],
     rows: shown.map((m) => [
-      m.status === "appeared" ? `${m.label} (nouveau)` : m.status === "disappeared" ? `${m.label} (disparu)` : m.label,
-      formatNumber(m.previous),
-      formatNumber(m.current),
-      signed(m.delta),
-      signedPercent(m.percent),
+      m.status === "appeared"
+        ? `${m.label} (${text.markerNew})`
+        : m.status === "disappeared"
+          ? `${m.label} (${text.markerGone})`
+          : m.label,
+      formatNumber(m.previous, locale),
+      formatNumber(m.current, locale),
+      signed(m.delta, locale),
+      signedPercent(m.percent, locale),
     ]),
   };
 }
@@ -203,23 +221,33 @@ function buildValueDrift(
   return drift;
 }
 
-function buildHighlights(result: Omit<ComparisonResult, "highlights" | "charts">): string[] {
+function buildHighlights(
+  result: Omit<ComparisonResult, "highlights" | "charts">,
+  locale: Locale,
+  text: CompareText
+): string[] {
   const highlights: string[] = [];
   const { rowCount, metrics, category, structure } = result;
 
   const rowDelta = rowCount.current - rowCount.previous;
   highlights.push(
     rowDelta === 0
-      ? `Les deux fichiers comptent ${formatNumber(rowCount.current)} lignes.`
-      : `Le fichier récent compte ${formatNumber(rowCount.current)} lignes, soit ${signed(rowDelta)} par rapport au précédent.`
+      ? text.sameRowCount(formatNumber(rowCount.current, locale))
+      : text.rowCountChanged(formatNumber(rowCount.current, locale), signed(rowDelta, locale))
   );
 
   for (const metric of metrics.slice(0, 3)) {
-    const direction = metric.delta > 0 ? "progresse" : metric.delta < 0 ? "recule" : "est stable";
     highlights.push(
       metric.delta === 0
-        ? `${metric.name} est stable à ${formatNumber(metric.current)}.`
-        : `${metric.name} ${direction} de ${signedPercent(metric.percent)} (${signed(metric.delta)}), passant de ${formatNumber(metric.previous)} à ${formatNumber(metric.current)}.`
+        ? text.metricStable(metric.name, formatNumber(metric.current, locale))
+        : text.metricMoved(
+            metric.name,
+            metric.delta > 0 ? text.up : text.down,
+            signedPercent(metric.percent, locale),
+            signed(metric.delta, locale),
+            formatNumber(metric.previous, locale),
+            formatNumber(metric.current, locale)
+          )
     );
   }
 
@@ -230,17 +258,25 @@ function buildHighlights(result: Omit<ComparisonResult, "highlights" | "charts">
 
     if (top) {
       highlights.push(
-        `Sur ${category.name.toLowerCase()}, "${top.label}" pèse le plus dans l'écart : ${signed(top.delta)} (${signedPercent(top.percent)}).`
+        text.topMover(category.name.toLowerCase(), top.label, signed(top.delta, locale), signedPercent(top.percent, locale))
       );
     }
     if (appeared.length > 0) {
       highlights.push(
-        `${appeared.length} valeur(s) de ${category.name.toLowerCase()} apparaissent dans le fichier récent : ${appeared.slice(0, 3).map((m) => `"${m.label}"`).join(", ")}.`
+        text.appearedInCategory(
+          appeared.length,
+          category.name.toLowerCase(),
+          appeared.slice(0, 3).map((m) => `"${m.label}"`).join(", ")
+        )
       );
     }
     if (disappeared.length > 0) {
       highlights.push(
-        `${disappeared.length} valeur(s) de ${category.name.toLowerCase()} ont disparu : ${disappeared.slice(0, 3).map((m) => `"${m.label}"`).join(", ")}.`
+        text.disappearedInCategory(
+          disappeared.length,
+          category.name.toLowerCase(),
+          disappeared.slice(0, 3).map((m) => `"${m.label}"`).join(", ")
+        )
       );
     }
   }
@@ -253,12 +289,12 @@ function buildHighlights(result: Omit<ComparisonResult, "highlights" | "charts">
     if (category && drift.column === category.name) continue;
     if (drift.appeared.length > 0) {
       highlights.push(
-        `Nouvelles valeurs dans "${drift.column}" : ${drift.appeared.slice(0, 4).map((v) => `"${v}"`).join(", ")}${drift.appeared.length > 4 ? "…" : ""}.`
+        text.newValues(drift.column, drift.appeared.slice(0, 4).map((v) => `"${v}"`).join(", "), drift.appeared.length > 4)
       );
     }
     if (drift.disappeared.length > 0) {
       highlights.push(
-        `Valeurs absentes du fichier récent dans "${drift.column}" : ${drift.disappeared.slice(0, 4).map((v) => `"${v}"`).join(", ")}${drift.disappeared.length > 4 ? "…" : ""}.`
+        text.missingValues(drift.column, drift.disappeared.slice(0, 4).map((v) => `"${v}"`).join(", "), drift.disappeared.length > 4)
       );
     }
   }
@@ -266,10 +302,10 @@ function buildHighlights(result: Omit<ComparisonResult, "highlights" | "charts">
   // Structural drift matters: a renamed or dropped column silently changes
   // what the figures above even mean.
   if (structure.added.length > 0) {
-    highlights.push(`Colonne(s) présente(s) uniquement dans le fichier récent : ${structure.added.join(", ")}.`);
+    highlights.push(text.columnsAdded(structure.added.join(", ")));
   }
   if (structure.removed.length > 0) {
-    highlights.push(`Colonne(s) présente(s) uniquement dans le fichier précédent : ${structure.removed.join(", ")}.`);
+    highlights.push(text.columnsRemoved(structure.removed.join(", ")));
   }
 
   return highlights;
@@ -279,8 +315,10 @@ export async function compareWorkbooks(
   previousBuffer: Buffer,
   currentBuffer: Buffer,
   previousName: string,
-  currentName: string
+  currentName: string,
+  locale: Locale = DEFAULT_LOCALE
 ): Promise<ComparisonResult> {
+  const text = compareText(locale);
   const previous = parseBestTable(previousBuffer);
   const current = parseBestTable(currentBuffer);
 
@@ -296,9 +334,7 @@ export async function compareWorkbooks(
 
   const shared = currentColumns.filter((c) => previousNames.has(c.name));
   if (shared.length === 0) {
-    throw new Error(
-      "Ces deux fichiers n'ont aucune colonne en commun : la comparaison n'a pas de sens. Vérifiez qu'il s'agit bien du même export à deux périodes."
-    );
+    throw new Error(text.noSharedColumns);
   }
 
   const sharedMetrics = shared.filter((c) => c.type === "numeric" && !c.isIdLike);
@@ -323,9 +359,9 @@ export async function compareWorkbooks(
     const movements = buildMovements(category, metric, previous.rows, current.rows);
     categoryBlock = { name: category.name, metricName: metric.name, movements };
 
-    const variation = buildVariationChart(movements, category.name, metric.name);
+    const variation = buildVariationChart(movements, category.name, metric.name, locale, text);
     if (variation) charts.push(variation);
-    if (movements.length > 0) charts.push(buildSideBySideTable(movements, category.name, metric.name));
+    if (movements.length > 0) charts.push(buildSideBySideTable(movements, category.name, metric.name, locale, text));
   }
 
   const base = {
@@ -338,5 +374,5 @@ export async function compareWorkbooks(
     valueDrift: buildValueDrift(sharedCategories, previous.rows, current.rows),
   };
 
-  return { ...base, highlights: buildHighlights(base), charts };
+  return { ...base, highlights: buildHighlights(base, locale, text), charts };
 }

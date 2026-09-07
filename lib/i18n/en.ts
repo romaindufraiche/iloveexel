@@ -206,6 +206,8 @@ export const en: Dictionary = {
     totals: "Totals",
     was: "was",
     close: "Close the comparison",
+    download: "Download this comparison (PDF)",
+    downloading: "Generating…",
   },
 
   plans: {
