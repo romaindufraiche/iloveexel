@@ -4,6 +4,8 @@ import { useCallback, useRef, useState } from "react";
 import PlansModal, { type PlansReason } from "./PlansModal";
 import ReportEditor, { type EditorAnalysis } from "./ReportEditor";
 import ReportPreview from "./ReportPreview";
+import ComparisonReport from "./ComparisonReport";
+import type { ComparisonResult } from "@/lib/compare";
 import { getDictionary, type Locale } from "@/lib/i18n";
 
 type Status = "idle" | "dragging" | "uploading" | "success" | "error" | "limit";
@@ -39,7 +41,10 @@ export default function UploadCard({ locale }: { locale: Locale }) {
   const [lastFile, setLastFile] = useState<File | null>(null);
   const [reportAnalysis, setReportAnalysis] = useState<EditorAnalysis | null>(null);
   const [isEditing, setIsEditing] = useState(false);
+  const [comparison, setComparison] = useState<ComparisonResult | null>(null);
+  const [comparing, setComparing] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const compareInputRef = useRef<HTMLInputElement>(null);
 
   const reset = useCallback(() => {
     setStatus("idle");
@@ -50,6 +55,7 @@ export default function UploadCard({ locale }: { locale: Locale }) {
     setDownloadName("");
     setReportAnalysis(null);
     setIsEditing(false);
+    setComparison(null);
   }, []);
 
   const fetchPreview = useCallback(
@@ -68,6 +74,34 @@ export default function UploadCard({ locale }: { locale: Locale }) {
       }
     },
     [locale]
+  );
+
+  const runComparison = useCallback(
+    async (previousFile: File) => {
+      if (!lastFile) return;
+      setComparing(true);
+      try {
+        const formData = new FormData();
+        formData.append("current", lastFile);
+        formData.append("previous", previousFile);
+        formData.append("locale", locale);
+        const res = await fetch("/api/compare", { method: "POST", body: formData });
+        const data = await res.json();
+
+        if (!res.ok) {
+          setStatus("error");
+          setErrorMessage(data?.error || dict.errors.generic);
+          return;
+        }
+        setComparison(data as ComparisonResult);
+      } catch {
+        setStatus("error");
+        setErrorMessage(dict.errors.server);
+      } finally {
+        setComparing(false);
+      }
+    },
+    [lastFile, locale, dict.errors]
   );
 
   const uploadFile = useCallback(
@@ -176,6 +210,10 @@ export default function UploadCard({ locale }: { locale: Locale }) {
 
   const showFormatPicker = status === "idle" || status === "dragging";
 
+  if (comparison) {
+    return <ComparisonReport result={comparison} locale={locale} onClose={() => setComparison(null)} />;
+  }
+
   if (isEditing && reportAnalysis && lastFile) {
     return (
       <>
@@ -279,6 +317,32 @@ export default function UploadCard({ locale }: { locale: Locale }) {
                 {reportAnalysis ? t.edit : t.editLoading}
               </button>
             </div>
+            <div className="mt-3 rounded-xl border border-dashed border-brand-300 bg-brand-50 p-4">
+              <button
+                type="button"
+                onClick={() => compareInputRef.current?.click()}
+                disabled={comparing}
+                className="inline-flex items-center gap-2 rounded-full bg-gray-900 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-gray-700 disabled:opacity-60"
+              >
+                <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2}>
+                  <path d="M7 16V4m0 0L4 7m3-3l3 3M17 8v12m0 0l3-3m-3 3l-3-3" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+                {comparing ? dict.compare.loading : dict.compare.cta}
+              </button>
+              <p className="mt-2 text-xs text-gray-600">{dict.compare.ctaHint}</p>
+              <input
+                ref={compareInputRef}
+                type="file"
+                accept=".xlsx,.xls,.xlsm,.csv"
+                onChange={(e) => {
+                  const picked = e.target.files?.[0];
+                  if (picked) runComparison(picked);
+                  e.target.value = "";
+                }}
+                className="hidden"
+              />
+            </div>
+
             <button type="button" onClick={reset} className="mt-4 block w-full text-sm font-medium text-gray-500 hover:text-brand-700">
               {t.another}
             </button>

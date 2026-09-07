@@ -195,6 +195,19 @@ export const en: Dictionary = {
     chartTypes: { bar: "Bars", line: "Line", donut: "Pie" },
   },
 
+  compare: {
+    cta: "Compare with another period",
+    ctaHint: "Drop in the previous period's export to see what changed.",
+    loading: "Comparing…",
+    reportTitle: "What changed",
+    previousLabel: "Before:",
+    currentLabel: "after:",
+    whatChanged: "In short",
+    totals: "Totals",
+    was: "was",
+    close: "Close the comparison",
+  },
+
   plans: {
     reasons: {
       download: {

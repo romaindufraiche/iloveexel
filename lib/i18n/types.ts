@@ -98,6 +98,18 @@ export interface Dictionary {
     notePlaceholder: string;
     chartTypes: { bar: string; line: string; donut: string };
   };
+  compare: {
+    cta: string;
+    ctaHint: string;
+    loading: string;
+    reportTitle: string;
+    previousLabel: string;
+    currentLabel: string;
+    whatChanged: string;
+    totals: string;
+    was: string;
+    close: string;
+  };
   plans: {
     reasons: { download: ReasonCopy; account: ReasonCopy; query: ReasonCopy };
     list: PlanContent[];

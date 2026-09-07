@@ -36,7 +36,7 @@ function stripSvgWrapper(svg: string): string {
 function chartToSvgAnyKind(chart: ChartSpec): string {
   switch (chart.kind) {
     case "bar":
-      return barChart(chart.labels, chart.values, chart.seriesLabel);
+      return barChart(chart.labels, chart.values, chart.seriesLabel, chart.palette);
     case "line":
       return lineChart(chart.labels, chart.values, chart.seriesLabel);
     case "donut":

@@ -196,6 +196,19 @@ export const fr: Dictionary = {
     chartTypes: { bar: "Barres", line: "Courbe", donut: "Camembert" },
   },
 
+  compare: {
+    cta: "Comparer à une autre période",
+    ctaHint: "Déposez l'export de la période précédente pour voir ce qui a changé.",
+    loading: "Comparaison…",
+    reportTitle: "Ce qui a changé",
+    previousLabel: "Avant :",
+    currentLabel: "après :",
+    whatChanged: "En résumé",
+    totals: "Totaux",
+    was: "auparavant",
+    close: "Fermer la comparaison",
+  },
+
   plans: {
     reasons: {
       download: {

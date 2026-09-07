@@ -501,7 +501,7 @@ function nameHintScore(name: string, hints: string[]): number {
   return hints.some((h) => lower.includes(h)) ? 1 : 0;
 }
 
-function scoreMetricColumn(profile: ColumnProfile): number {
+export function scoreMetricColumn(profile: ColumnProfile): number {
   if (profile.type !== "numeric" || profile.isIdLike) return -Infinity;
   const stats = profile.stats as NumericStats;
   if (stats.count === 0) return -Infinity;
@@ -510,7 +510,7 @@ function scoreMetricColumn(profile: ColumnProfile): number {
   return nameHintScore(profile.name, METRIC_NAME_HINTS) * 5 + variability + magnitude * 0.5;
 }
 
-function scoreCategoryColumn(profile: ColumnProfile): number {
+export function scoreCategoryColumn(profile: ColumnProfile): number {
   if (profile.type !== "categorical" || profile.isIdLike) return -Infinity;
   const stats = profile.stats as CategoricalStats;
   if (stats.uniqueCount < 2 || stats.uniqueCount > 20) return -Infinity;
@@ -608,7 +608,7 @@ function guessDatasetTopic(columnNames: string[]): string {
   return "tabulaires";
 }
 
-function sumMetricByCategory(rows: Record<string, unknown>[], categoryName: string, metricName: string): [string, number][] {
+export function sumMetricByCategory(rows: Record<string, unknown>[], categoryName: string, metricName: string): [string, number][] {
   const sums = new Map<string, number>();
   for (const row of rows) {
     if (isBlank(row[categoryName])) continue;
@@ -1039,7 +1039,7 @@ function buildNarrative(
   return { narrative, recommendations };
 }
 
-interface ParsedTable {
+export interface ParsedTable {
   sheetName: string;
   rows: Record<string, unknown>[];
   headers: string[];
@@ -1049,7 +1049,7 @@ interface ParsedTable {
 // Picks whichever sheet actually yields a usable table — not just the
 // first non-empty one, since a workbook's first tab is sometimes a cover
 // page or an instructions sheet with only a couple of stray cells.
-function parseBestTable(buffer: Buffer): ParsedTable {
+export function parseBestTable(buffer: Buffer): ParsedTable {
   const workbook = XLSX.read(buffer, { type: "buffer", cellDates: true });
 
   let bestTable: ExtractedTable | null = null;
@@ -1074,7 +1074,7 @@ function parseBestTable(buffer: Buffer): ParsedTable {
   };
 }
 
-function profileColumns(rows: Record<string, unknown>[], headers: string[]): ColumnProfile[] {
+export function profileColumns(rows: Record<string, unknown>[], headers: string[]): ColumnProfile[] {
   const rawColumns = extractColumns(rows, headers);
   return rawColumns.map(({ name, values }) => {
     const type = inferColumnType(values);

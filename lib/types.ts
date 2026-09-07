@@ -70,6 +70,9 @@ export interface BarLineChart {
   labels: string[];
   values: number[];
   seriesLabel?: string;
+  /** Overrides the default palette, one colour per bar. Used by variation
+   *  charts, where the sign of each bar is the point being made. */
+  palette?: string[];
 }
 
 export interface DonutChart {

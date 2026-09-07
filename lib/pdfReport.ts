@@ -109,7 +109,7 @@ function drawTable(doc: PDFKit.PDFDocument, chart: TableChart, x: number, width:
 function chartToSvg(chart: ChartSpec): string {
   switch (chart.kind) {
     case "bar":
-      return barChart(chart.labels, chart.values, chart.seriesLabel);
+      return barChart(chart.labels, chart.values, chart.seriesLabel, chart.palette);
     case "line":
       return lineChart(chart.labels, chart.values, chart.seriesLabel);
     case "donut":
