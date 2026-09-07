@@ -119,6 +119,9 @@ export async function POST(request: Request) {
           generatedAt: analysis.generatedAt,
           kpis: buildKpis(analysis),
           charts: analysis.charts,
+          // Only what the editor's axis pickers need — the full profiles
+          // carry per-column stats the browser has no use for.
+          columns: analysis.columns.map((c) => ({ name: c.name, type: c.type })),
         },
         { headers: { "Cache-Control": "no-store" } }
       );

@@ -17,6 +17,11 @@ interface ChartBlock {
   insight: string;
   typeOverride?: EditableKind;
   paletteIndex: number;
+  /** Axis columns, once the reader has overridden them. */
+  xAxis?: string;
+  yAxis?: string;
+  axisBusy?: boolean;
+  axisError?: string;
 }
 
 interface NoteBlock {
@@ -27,12 +32,18 @@ interface NoteBlock {
 
 type Block = ChartBlock | NoteBlock;
 
+export interface AxisColumn {
+  name: string;
+  type: string;
+}
+
 export interface EditorAnalysis {
   fileName: string;
   sheetName: string;
   rowCount: number;
   kpis: Kpi[];
   charts: ChartSpec[];
+  columns?: AxisColumn[];
 }
 
 function blockIdFrom(prefix: string, index: number): string {
@@ -56,6 +67,7 @@ export default function ReportEditor({
 }) {
   const dict = getDictionary(locale);
   const t = dict.editor;
+  const columns = analysis.columns ?? [];
   const [kpis, setKpis] = useState<Kpi[]>(analysis.kpis);
   const [blocks, setBlocks] = useState<Block[]>(
     analysis.charts.map((chart, i) => ({
@@ -93,6 +105,47 @@ export default function ReportEditor({
   const addNote = useCallback(() => {
     setBlocks((prev) => [...prev, { kind: "note", id: blockIdFrom("note", prev.length), text: t.notePlaceholder }]);
   }, [t.notePlaceholder]);
+
+  // Changing an axis can't be done in the browser: the chart holds only the
+  // aggregated series, not the rows it came from, so the engine has to
+  // recompute it from the file.
+  const applyAxes = useCallback(
+    async (id: string, xAxis: string, yAxis: string) => {
+      if (!xAxis) return;
+      setBlocks((prev) => prev.map((b) => (b.kind === "chart" && b.id === id ? { ...b, xAxis, yAxis, axisBusy: true, axisError: undefined } : b)));
+
+      try {
+        const formData = new FormData();
+        formData.append("file", file);
+        formData.append("x", xAxis);
+        formData.append("y", yAxis);
+        formData.append("locale", locale);
+        const res = await fetch("/api/axis-chart", { method: "POST", body: formData });
+        const data = await res.json();
+
+        if (!res.ok || !data.chart) {
+          setBlocks((prev) =>
+            prev.map((b) => (b.kind === "chart" && b.id === id ? { ...b, axisBusy: false, axisError: data.message || t.searchEmpty } : b))
+          );
+          return;
+        }
+
+        const next: ChartSpec = data.chart;
+        setBlocks((prev) =>
+          prev.map((b) =>
+            b.kind === "chart" && b.id === id
+              ? { ...b, original: next, title: next.title, insight: next.insight, typeOverride: undefined, axisBusy: false, axisError: undefined }
+              : b
+          )
+        );
+      } catch {
+        setBlocks((prev) =>
+          prev.map((b) => (b.kind === "chart" && b.id === id ? { ...b, axisBusy: false, axisError: dict.errors.server } : b))
+        );
+      }
+    },
+    [file, locale, t.searchEmpty, dict.errors.server]
+  );
 
   const runQuery = useCallback(async () => {
     const prompt = query.trim();
@@ -280,6 +333,47 @@ export default function ReportEditor({
                   </div>
                 ) : null}
               </div>
+
+              {columns.length > 0 ? (
+                <div className="mt-3 flex flex-wrap items-end gap-3 rounded-lg bg-gray-50 p-3">
+                  <label className="flex flex-col gap-1">
+                    <span className="text-[11px] font-medium text-gray-500">{t.xAxis}</span>
+                    <select
+                      value={block.xAxis ?? ""}
+                      disabled={block.axisBusy}
+                      onChange={(e) => applyAxes(block.id, e.target.value, block.yAxis ?? "")}
+                      className="rounded-md border border-gray-300 px-2 py-1 text-xs disabled:opacity-50"
+                    >
+                      <option value="">{t.axisAuto}</option>
+                      {columns.map((c) => (
+                        <option key={c.name} value={c.name}>
+                          {c.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label className="flex flex-col gap-1">
+                    <span className="text-[11px] font-medium text-gray-500">{t.yAxis}</span>
+                    <select
+                      value={block.yAxis ?? ""}
+                      disabled={block.axisBusy || !block.xAxis}
+                      onChange={(e) => applyAxes(block.id, block.xAxis ?? "", e.target.value)}
+                      className="rounded-md border border-gray-300 px-2 py-1 text-xs disabled:opacity-50"
+                    >
+                      <option value="">{t.axisNone}</option>
+                      {columns.map((c) => (
+                        <option key={c.name} value={c.name}>
+                          {c.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  {block.axisBusy ? <span className="pb-1 text-xs text-gray-500">{t.searchLoading}</span> : null}
+                  {block.axisError ? <span className="pb-1 text-xs text-red-600">{block.axisError}</span> : null}
+                </div>
+              ) : null}
 
               <textarea
                 value={block.insight}

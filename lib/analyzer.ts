@@ -1495,3 +1495,76 @@ export async function answerChartQuery(buffer: Buffer, prompt: string): Promise<
   const matchedNames = [metric?.name, category?.name, wantsTrend ? dateCol?.name : null].filter(Boolean).join(" × ");
   return { chart, message: `Généré à partir de : ${matchedNames}.` };
 }
+
+export interface AxisOption {
+  name: string;
+  type: ColumnType;
+}
+
+export interface AxisChartResult {
+  chart: ChartSpec | null;
+  message: string;
+}
+
+// Powers the editor's axis pickers. Unlike the automatic analysis, the
+// columns are chosen by the reader rather than scored — but the chart type
+// is still decided from what those two columns actually are, so picking a
+// date against an amount gives a trend line and two amounts give a scatter
+// plot. An empty y axis means "just describe x on its own".
+export async function buildChartFromAxes(buffer: Buffer, xName: string, yName: string | null): Promise<AxisChartResult> {
+  const { rows, headers } = parseBestTable(buffer);
+  const columns = profileColumns(rows, headers);
+
+  const x = columns.find((c) => c.name === xName);
+  if (!x) {
+    return { chart: null, message: `La colonne "${xName}" est introuvable dans ce fichier.` };
+  }
+
+  const y = yName ? columns.find((c) => c.name === yName) : undefined;
+  if (yName && !y) {
+    return { chart: null, message: `La colonne "${yName}" est introuvable dans ce fichier.` };
+  }
+
+  const yIsNumeric = y?.type === "numeric";
+  let chart: ChartSpec | null = null;
+
+  if (x.type === "date" && yIsNumeric) {
+    chart = buildTrendChart(x, y!, rows);
+    if (!chart) {
+      return { chart: null, message: "Pas assez de périodes distinctes pour tracer une évolution avec cet axe." };
+    }
+  } else if (x.type === "numeric" && yIsNumeric) {
+    const xs = rows.map((r) => tryParseNumber(r[x.name]));
+    const ys = rows.map((r) => tryParseNumber(r[y!.name]));
+    const pairs = xs.map((v, i) => [v, ys[i]] as const).filter(([a, b]) => a !== null && b !== null) as [number, number][];
+    if (pairs.length < 3) {
+      return { chart: null, message: "Trop peu de lignes complètes sur ces deux colonnes pour tracer un nuage de points." };
+    }
+    chart = buildScatterChart(x, y!, pearson(pairs.map((p) => p[0]), pairs.map((p) => p[1])), rows);
+  } else if (yIsNumeric) {
+    // Anything else against a metric is a "sum by X" question. Past ~20
+    // distinct values a bar chart stops being readable, so it becomes a table.
+    const stats = x.stats as CategoricalStats;
+    const distinct = x.type === "categorical" ? stats.uniqueCount : new Set(rows.map((r) => String(r[x.name] ?? ""))).size;
+    chart = distinct > 20 ? buildRankingTable(x, y!, rows) : buildCategoryRankingChart(x, y!, rows);
+  } else if (y && x.type === "categorical" && y.type === "categorical") {
+    const metric = columns.find((c) => c.type === "numeric" && !c.isIdLike);
+    chart = metric ? buildCrossTabHeatmap(x, y, metric, rows) : null;
+    if (!chart) {
+      return {
+        chart: null,
+        message: "Croiser deux colonnes de texte demande un indicateur numérique et au plus 6 valeurs distinctes de chaque côté.",
+      };
+    }
+  } else if (x.type === "numeric") {
+    chart = buildDistributionChart(x, rows);
+  } else if (x.type === "categorical") {
+    chart = buildCompositionChart(x);
+  }
+
+  if (!chart) {
+    return { chart: null, message: "Cette combinaison d'axes ne permet pas de tracer un graphique lisible." };
+  }
+
+  return { chart, message: y ? `${y.name} par ${x.name}.` : `Répartition de ${x.name}.` };
+}

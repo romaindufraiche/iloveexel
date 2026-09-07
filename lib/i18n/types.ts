@@ -89,6 +89,10 @@ export interface Dictionary {
     searchLoading: string;
     searchEmpty: string;
     searchAdded: string;
+    xAxis: string;
+    yAxis: string;
+    axisAuto: string;
+    axisNone: string;
     delete: string;
     addNote: string;
     notePlaceholder: string;
