@@ -4,6 +4,8 @@ import { notFound } from "next/navigation";
 import UploadCard from "@/components/UploadCard";
 import SiteHeader from "@/components/SiteHeader";
 import SiteFooter from "@/components/SiteFooter";
+import PrivacyBadges from "@/components/PrivacyBadges";
+import PrivacySection from "@/components/PrivacySection";
 import { USE_CASES, findUseCase } from "@/lib/useCases";
 import { SITE_URL } from "@/lib/site";
 
@@ -73,6 +75,7 @@ export default async function UseCasePage({ params }: { params: Promise<{ useCas
 
         <div className="mt-10">
           <UploadCard />
+          <PrivacyBadges />
         </div>
       </section>
 
@@ -101,6 +104,8 @@ export default async function UseCasePage({ params }: { params: Promise<{ useCas
           </ul>
         </div>
       </section>
+
+      <PrivacySection />
 
       <section className="py-14">
         <div className="mx-auto max-w-3xl px-6">

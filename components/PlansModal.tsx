@@ -12,15 +12,6 @@ interface Plan {
 
 const PLANS: Plan[] = [
   {
-    name: "Gratuit",
-    tagline: "Sans compte",
-    benefits: [
-      "5 générations par jour",
-      "Personnalisation des graphiques (texte, couleurs, type)",
-      "Export PDF, PowerPoint et image",
-    ],
-  },
-  {
     name: "Étudiant",
     tagline: "Avec une adresse universitaire",
     badge: "-50 %",
@@ -29,7 +20,7 @@ const PLANS: Plan[] = [
   {
     name: "Analyste",
     tagline: "Connecté",
-    benefits: ["50 générations par jour", "Recherche par période", "Tous les avantages du plan Gratuit"],
+    benefits: ["50 générations par jour", "Recherche par période", "Téléchargement des rapports personnalisés"],
     highlighted: true,
   },
   {
@@ -92,7 +83,7 @@ export default function PlansModal({ onClose, reason = "account" }: { onClose: (
         <h2 className="mt-3 text-xl font-bold text-gray-900">{copy.heading}</h2>
         <p className="mt-1 text-sm text-gray-600">{copy.description}</p>
 
-        <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="mt-6 grid gap-4 sm:grid-cols-3">
           {PLANS.map((plan) => (
             <div
               key={plan.name}

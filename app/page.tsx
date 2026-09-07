@@ -2,6 +2,9 @@ import Link from "next/link";
 import UploadCard from "@/components/UploadCard";
 import SiteHeader from "@/components/SiteHeader";
 import SiteFooter from "@/components/SiteFooter";
+import PrivacyBadges from "@/components/PrivacyBadges";
+import PrivacySection from "@/components/PrivacySection";
+import PositioningSection from "@/components/PositioningSection";
 import { SITE_NAME, SITE_URL, SITE_DESCRIPTION } from "@/lib/site";
 import { USE_CASES } from "@/lib/useCases";
 
@@ -41,11 +44,15 @@ const FAQ = [
   },
   {
     q: "Combien d'analyses puis-je faire gratuitement ?",
-    a: "5 analyses gratuites par jour, sans création de compte, avec personnalisation complète des graphiques. Besoin de plus de volume ou de l'accès API ? Connectez-vous pour découvrir nos offres Analyste et Expert.",
+    a: "5 analyses par jour, sans création de compte, avec personnalisation complète des graphiques. Besoin de plus de volume, de la recherche par période ou de l'accès API ? Les forfaits Analyste et Expert les débloquent, avec un tarif Étudiant à -50 % sur justificatif.",
   },
   {
     q: "Mes données sont-elles conservées ?",
-    a: "Non. Votre fichier est analysé à la volée pour générer votre rapport, puis n'est pas conservé sur nos serveurs.",
+    a: "Non, jamais. Votre fichier est lu en mémoire le temps de calculer les graphiques, puis il disparaît : il n'est écrit sur aucun disque, enregistré dans aucune base de données, et son contenu n'est ni réutilisé, ni transmis à un tiers, ni exploité pour entraîner quoi que ce soit. Nous ne faisons que mettre en forme vos chiffres.",
+  },
+  {
+    q: "Qui est derrière l'outil ?",
+    a: "SheetInsight est développé par des data analystes, pour les professionnels dont ce n'est pas le métier de construire des graphiques mais qui ont besoin de s'appuyer sur leurs chiffres. C'est un produit GLM.",
   },
 ];
 
@@ -106,6 +113,7 @@ export default function HomePage() {
 
         <div className="mt-10">
           <UploadCard />
+          <PrivacyBadges />
         </div>
       </section>
 
@@ -124,24 +132,42 @@ export default function HomePage() {
         </div>
       </section>
 
+      <PositioningSection />
+
+      <PrivacySection />
+
       <section className="py-16">
         <div className="mx-auto max-w-5xl px-6">
           <h2 className="text-center text-2xl font-bold text-gray-900">Quel est votre type de fichier ?</h2>
-          <p className="mx-auto mt-3 max-w-xl text-center text-sm text-gray-600">
-            Le moteur s&apos;adapte au contenu de votre tableau. Voici ce qu&apos;il produit selon les cas les plus courants.
+          <p className="mx-auto mt-3 max-w-2xl text-center text-gray-600">
+            Un fichier de ventes, un budget, un inventaire ou un questionnaire ne se lisent pas de la même façon. Le moteur reconnaît la
+            nature de vos colonnes et adapte les indicateurs comme les graphiques. Choisissez le cas qui ressemble au vôtre pour voir
+            précisément ce qu&apos;il en tire.
           </p>
           <div className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {USE_CASES.map((useCase) => (
               <Link
                 key={useCase.slug}
                 href={`/analyse/${useCase.slug}`}
-                className="rounded-xl border border-gray-200 bg-white p-5 transition hover:border-brand-300 hover:shadow-sm"
+                className="group flex flex-col rounded-xl border border-gray-200 bg-white p-5 transition hover:border-brand-300 hover:shadow-sm"
               >
                 <h3 className="font-semibold text-brand-700">{useCase.h1}</h3>
-                <p className="mt-2 line-clamp-3 text-sm text-gray-600">{useCase.intro}</p>
+                <p className="mt-2 line-clamp-3 flex-1 text-sm text-gray-600">{useCase.intro}</p>
+                <ul className="mt-3 space-y-1">
+                  {useCase.detects.slice(0, 3).map((detect) => (
+                    <li key={detect.column} className="truncate text-xs text-gray-500">
+                      <span className="text-brand-600">•</span> {detect.column}
+                    </li>
+                  ))}
+                </ul>
+                <span className="mt-3 text-xs font-semibold text-brand-700 group-hover:underline">Voir ce que ça donne →</span>
               </Link>
             ))}
           </div>
+          <p className="mt-8 text-center text-sm text-gray-500">
+            Votre cas n&apos;est pas dans la liste ? Déposez quand même votre fichier : le moteur s&apos;adapte au contenu, pas à un
+            modèle prédéfini.
+          </p>
         </div>
       </section>
 

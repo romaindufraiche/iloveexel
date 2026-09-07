@@ -209,6 +209,166 @@ export const USE_CASES: UseCase[] = [
       },
     ],
   },
+  {
+    slug: "stock-inventaire",
+    navLabel: "Stock, inventaire",
+    h1: "Analyser un fichier de stock ou d'inventaire Excel",
+    title: "Analyser un fichier de stock Excel — rotation et valeur | SheetInsight",
+    metaDescription:
+      "Déposez votre inventaire Excel : SheetInsight calcule la valeur totale du stock, classe les références par poids et repère les quantités atypiques. Rapport immédiat, sans inscription.",
+    intro:
+      "Un fichier d'inventaire compte souvent des centaines de références, ce qui le rend impossible à lire en l'état. La bonne question n'est pas « qu'y a-t-il en stock » mais « où est immobilisé l'argent » : SheetInsight classe vos références par valeur et met en évidence celles qui pèsent réellement.",
+    detects: [
+      { column: "Quantité, Stock, Qté disponible", role: "les volumes, totalisés et distribués" },
+      { column: "Prix unitaire, Valeur, Montant", role: "la valorisation du stock" },
+      { column: "Référence, Article, SKU", role: "le classement des références, en tableau si elles sont nombreuses" },
+      { column: "Catégorie, Famille, Entrepôt", role: "la répartition par famille de produits ou par site" },
+    ],
+    outputs: [
+      "La valeur totale du stock et le nombre de références, affichées immédiatement",
+      "Un classement des références qui immobilisent le plus de valeur",
+      "La répartition par famille de produits ou par entrepôt",
+      "Le repérage des quantités atypiques, souvent des erreurs de saisie ou des ruptures",
+    ],
+    faq: [
+      {
+        q: "J'ai plus de 500 références, le graphique sera illisible non ?",
+        a: "C'est justement prévu : au-delà d'une vingtaine de valeurs distinctes, le moteur bascule automatiquement sur un tableau classé plutôt que sur un diagramme en barres illisible, en indiquant la part de chaque référence dans le total.",
+      },
+      {
+        q: "Le fichier calcule-t-il la valeur si j'ai la quantité et le prix séparément ?",
+        a: "Le moteur analyse chaque colonne numérique séparément (quantités d'un côté, montants de l'autre). Si votre fichier contient déjà une colonne de valeur totale, c'est elle qui sert de référence pour la valorisation.",
+      },
+    ],
+  },
+  {
+    slug: "resultats-questionnaire",
+    navLabel: "Questionnaire",
+    h1: "Analyser les résultats d'un questionnaire ou d'un sondage",
+    title: "Analyser les résultats d'un questionnaire Excel — répartitions | SheetInsight",
+    metaDescription:
+      "Exportez votre questionnaire (Google Forms, Microsoft Forms, Typeform) et déposez-le ici : répartition des réponses, croisements entre questions et notes moyennes. Sans inscription.",
+    intro:
+      "Les exports de questionnaires sont un cas particulier : une colonne par question, presque que du texte, et des centaines de lignes de réponses. Additionner n'aurait aucun sens — ce qu'il faut, ce sont des répartitions et des croisements. C'est exactement ce que le moteur produit quand il détecte ce type de fichier.",
+    detects: [
+      { column: "Réponses à choix (Oui/Non, échelles)", role: "les répartitions en camembert ou en barres" },
+      { column: "Notes, Satisfaction, Score sur 10", role: "les moyennes et la distribution des notes" },
+      { column: "Profil, Âge, Service, Ville", role: "les croisements entre profil et réponse" },
+      { column: "Horodatage, Date de réponse", role: "l'évolution du nombre de réponses dans le temps" },
+    ],
+    outputs: [
+      "La répartition des réponses pour chaque question fermée",
+      "Un croisement de deux questions sous forme de matrice, pour voir qui répond quoi",
+      "La note moyenne et la distribution quand il y a des échelles",
+      "Un rapport présentable, sans passer par un tableau croisé dynamique",
+    ],
+    faq: [
+      {
+        q: "Mon export vient de Google Forms, est-ce compatible ?",
+        a: "Oui. Exportez vos réponses au format .xlsx ou .csv depuis Google Forms, Microsoft Forms ou Typeform, puis déposez le fichier : les intitulés de questions servent directement de noms de colonnes.",
+      },
+      {
+        q: "Les réponses libres sont-elles analysées ?",
+        a: "Les colonnes de texte libre, où chaque réponse est unique, sont détectées comme telles et écartées des graphiques : les représenter n'aurait aucun sens. Le rapport se concentre sur les questions fermées et les notes.",
+      },
+    ],
+  },
+  {
+    slug: "marketing-acquisition",
+    navLabel: "Marketing",
+    h1: "Analyser vos données marketing : campagnes, leads, conversions",
+    title: "Analyser des données marketing Excel — campagnes et conversions | SheetInsight",
+    metaDescription:
+      "Déposez votre export de campagnes ou de leads : SheetInsight compare vos canaux d'acquisition, calcule les volumes et trace l'évolution des conversions. Rapport prêt à présenter.",
+    intro:
+      "Les exports marketing (publicités, e-mailings, leads CRM) posent toujours la même question : quel canal fonctionne réellement. Le moteur compare vos canaux entre eux, calcule la part de chacun et montre si la tendance monte ou descend — sans que vous ayez à construire le tableau croisé.",
+    detects: [
+      { column: "Canal, Source, Campagne, Support", role: "la comparaison entre canaux d'acquisition" },
+      { column: "Clics, Impressions, Leads, Conversions", role: "les volumes comparés et totalisés" },
+      { column: "Coût, Budget, CPC", role: "le montant investi, réparti par canal" },
+      { column: "Date", role: "l'évolution des performances dans le temps" },
+    ],
+    outputs: [
+      "Le classement de vos canaux, avec la part de chacun dans le total",
+      "La courbe d'évolution des volumes, avec la tendance calculée sur la période",
+      "L'analyse de concentration : combien de canaux font l'essentiel des résultats",
+      "La corrélation entre deux indicateurs, par exemple budget investi et conversions",
+    ],
+    faq: [
+      {
+        q: "Peut-on voir si le budget investi fait vraiment monter les conversions ?",
+        a: "Oui. Quand le fichier contient plusieurs colonnes numériques, le moteur calcule leurs corrélations et trace un nuage de points avec une droite de tendance pour les deux plus liées, avec une interprétation en français.",
+      },
+      {
+        q: "Puis-je isoler une période précise, par exemple une campagne du 2e trimestre ?",
+        a: "Oui, via la barre de recherche de l'éditeur, en écrivant par exemple « les conversions par canal au T2 2026 ». Cette recherche par période fait partie des forfaits Analyste et Expert.",
+      },
+    ],
+  },
+  {
+    slug: "comptabilite-factures",
+    navLabel: "Comptabilité",
+    h1: "Analyser un export comptable ou un fichier de factures",
+    title: "Analyser un export comptable Excel — factures et encaissements | SheetInsight",
+    metaDescription:
+      "Déposez votre export de factures ou votre grand livre : total facturé, répartition par client ou par compte, évolution mensuelle. Rapport clair en PDF, sans inscription.",
+    intro:
+      "Un export comptable est fait pour être juste, pas pour être lisible. SheetInsight en tire les trois chiffres qui comptent vraiment : combien au total, réparti sur qui, et comment cela évolue — en gérant les montants au format comptable, parenthèses négatives comprises.",
+    detects: [
+      { column: "Montant HT, TTC, Débit, Crédit", role: "les montants totalisés, y compris les négatifs entre parenthèses" },
+      { column: "Client, Fournisseur, Compte", role: "la répartition et le classement" },
+      { column: "Date de facture, Échéance", role: "l'évolution mensuelle du facturé" },
+      { column: "Statut, Payée / En attente", role: "la répartition entre encaissé et en attente" },
+    ],
+    outputs: [
+      "Le total facturé sur la période, affiché sans avoir à sommer une colonne",
+      "Le classement des clients ou des comptes, avec la part de chacun",
+      "L'évolution mensuelle, avec la tendance sur la période",
+      "L'identification des montants atypiques, utiles à vérifier avant clôture",
+    ],
+    faq: [
+      {
+        q: "Mes montants négatifs sont entre parenthèses, comme en comptabilité. C'est géré ?",
+        a: "Oui. Les montants au format comptable — parenthèses pour les négatifs, symboles monétaires, séparateurs de milliers, virgule décimale — sont interprétés correctement.",
+      },
+      {
+        q: "Mon export contient des lignes de total intermédiaire, vont-elles fausser les chiffres ?",
+        a: "Non. Les lignes de total et de sous-total sont détectées puis exclues du calcul, pour ne pas compter deux fois les mêmes montants.",
+      },
+    ],
+  },
+  {
+    slug: "memoire-etudiant",
+    navLabel: "Mémoire, étude",
+    h1: "Analyser les données d'un mémoire, d'une thèse ou d'un projet étudiant",
+    title: "Analyser les données d'un mémoire Excel — graphiques prêts à insérer | SheetInsight",
+    metaDescription:
+      "Transformez vos données de mémoire, de thèse ou de projet en graphiques exploitables : répartitions, corrélations, tendances, avec l'interprétation écrite. Tarif étudiant disponible.",
+    intro:
+      "Pour un mémoire ou un rapport de stage, l'enjeu n'est pas de faire de jolis graphiques : c'est de montrer que vous avez lu vos données correctement. SheetInsight choisit la représentation adaptée à chaque variable et écrit ce qu'elle montre — à vous ensuite de construire l'argumentation, avec des chiffres sur lesquels vous pouvez vous appuyer.",
+    detects: [
+      { column: "Variables quantitatives", role: "les distributions, moyennes et médianes" },
+      { column: "Variables qualitatives", role: "les répartitions de l'échantillon" },
+      { column: "Deux variables numériques", role: "la corrélation, avec un nuage de points et sa droite de tendance" },
+      { column: "Trois variables ou plus", role: "une matrice de corrélation pour repérer les liens" },
+    ],
+    outputs: [
+      "Des graphiques exportables en image ou en PDF, à insérer directement dans votre document",
+      "Le coefficient de corrélation traduit en français, pour rédiger votre analyse sans contresens",
+      "La description de votre échantillon : effectifs, répartitions, valeurs atypiques",
+      "Un export PowerPoint avec des graphiques modifiables, pratique pour la soutenance",
+    ],
+    faq: [
+      {
+        q: "Existe-t-il un tarif étudiant ?",
+        a: "Oui, un forfait Étudiant à -50 % donne accès à 50 générations par jour, sur justificatif de scolarité. L'usage courant reste gratuit et sans compte.",
+      },
+      {
+        q: "Le résultat est-il utilisable dans un document académique ?",
+        a: "Les graphiques sont exportables en image haute définition ou en PDF. L'interprétation écrite vous sert de point de départ : à vous de la reformuler et de la confronter à votre problématique — l'outil calcule, il ne rédige pas votre mémoire à votre place.",
+      },
+    ],
+  }
 ];
 
 export function findUseCase(slug: string): UseCase | undefined {
