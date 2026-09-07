@@ -1,5 +1,9 @@
+import Link from "next/link";
 import UploadCard from "@/components/UploadCard";
-import AccountButton from "@/components/AccountButton";
+import SiteHeader from "@/components/SiteHeader";
+import SiteFooter from "@/components/SiteFooter";
+import { SITE_NAME, SITE_URL, SITE_DESCRIPTION } from "@/lib/site";
+import { USE_CASES } from "@/lib/useCases";
 
 const STEPS = [
   {
@@ -56,15 +60,40 @@ function StepIcon({ children }: { children: React.ReactNode }) {
 }
 
 export default function HomePage() {
+  const faqJsonLd = {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    mainEntity: FAQ.map((item) => ({
+      "@type": "Question",
+      name: item.q,
+      acceptedAnswer: { "@type": "Answer", text: item.a },
+    })),
+  };
+
+  const appJsonLd = {
+    "@context": "https://schema.org",
+    "@type": "WebApplication",
+    name: SITE_NAME,
+    url: SITE_URL,
+    applicationCategory: "BusinessApplication",
+    operatingSystem: "Web",
+    description: SITE_DESCRIPTION,
+    inLanguage: "fr",
+    publisher: { "@type": "Organization", name: "GLM", url: "https://glmprime.com" },
+    offers: {
+      "@type": "Offer",
+      price: "0",
+      priceCurrency: "EUR",
+      description: "5 analyses gratuites par jour, sans création de compte.",
+    },
+  };
+
   return (
     <main>
-      <header className="mx-auto flex max-w-6xl items-center justify-between px-6 py-6">
-        <div className="flex items-center gap-2">
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-brand-600 text-white font-bold">S</div>
-          <span className="text-lg font-bold text-gray-800">SheetInsight</span>
-        </div>
-        <AccountButton variant="icon" />
-      </header>
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(faqJsonLd) }} />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(appJsonLd) }} />
+
+      <SiteHeader />
 
       <section className="mx-auto max-w-3xl px-6 pt-10 pb-16 text-center">
         <h1 className="text-4xl font-extrabold tracking-tight text-gray-900 sm:text-5xl">
@@ -95,13 +124,34 @@ export default function HomePage() {
         </div>
       </section>
 
+      <section className="py-16">
+        <div className="mx-auto max-w-5xl px-6">
+          <h2 className="text-center text-2xl font-bold text-gray-900">Quel est votre type de fichier ?</h2>
+          <p className="mx-auto mt-3 max-w-xl text-center text-sm text-gray-600">
+            Le moteur s&apos;adapte au contenu de votre tableau. Voici ce qu&apos;il produit selon les cas les plus courants.
+          </p>
+          <div className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {USE_CASES.map((useCase) => (
+              <Link
+                key={useCase.slug}
+                href={`/analyse/${useCase.slug}`}
+                className="rounded-xl border border-gray-200 bg-white p-5 transition hover:border-brand-300 hover:shadow-sm"
+              >
+                <h3 className="font-semibold text-brand-700">{useCase.h1}</h3>
+                <p className="mt-2 line-clamp-3 text-sm text-gray-600">{useCase.intro}</p>
+              </Link>
+            ))}
+          </div>
+        </div>
+      </section>
+
       <section className="bg-white py-16">
         <div className="mx-auto max-w-3xl px-6">
           <h2 className="text-center text-2xl font-bold text-gray-900">Questions fréquentes</h2>
           <div className="mt-8 space-y-6">
             {FAQ.map((item) => (
               <div key={item.q} className="rounded-xl border border-gray-200 bg-white p-5">
-                <p className="font-semibold text-gray-800">{item.q}</p>
+                <h3 className="font-semibold text-gray-800">{item.q}</h3>
                 <p className="mt-1 text-sm text-gray-600">{item.a}</p>
               </div>
             ))}
@@ -109,21 +159,7 @@ export default function HomePage() {
         </div>
       </section>
 
-      <footer className="border-t border-gray-200 py-8 text-center text-sm text-gray-500">
-        <p>
-          © {new Date().getFullYear()} SheetInsight — un produit{" "}
-          <a href="https://glmprime.com" target="_blank" rel="noopener noreferrer" className="font-medium text-gray-600 hover:underline">
-            GLM
-          </a>
-          .
-        </p>
-        <p className="mt-1">
-          <a href="https://glmprime.com" target="_blank" rel="noopener noreferrer" className="hover:underline">
-            glmprime.com
-          </a>{" "}
-          · <AccountButton variant="link" />
-        </p>
-      </footer>
+      <SiteFooter />
     </main>
   );
 }

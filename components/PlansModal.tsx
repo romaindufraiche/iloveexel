@@ -7,6 +7,7 @@ interface Plan {
   tagline: string;
   benefits: string[];
   highlighted?: boolean;
+  badge?: string;
 }
 
 const PLANS: Plan[] = [
@@ -20,9 +21,15 @@ const PLANS: Plan[] = [
     ],
   },
   {
+    name: "Étudiant",
+    tagline: "Avec une adresse universitaire",
+    badge: "-50 %",
+    benefits: ["50 générations par jour", "Tous les avantages du plan Analyste", "Sur justificatif de scolarité"],
+  },
+  {
     name: "Analyste",
     tagline: "Connecté",
-    benefits: ["50 générations par jour", "Tous les avantages du plan Gratuit"],
+    benefits: ["50 générations par jour", "Recherche par période", "Tous les avantages du plan Gratuit"],
     highlighted: true,
   },
   {
@@ -69,7 +76,7 @@ export default function PlansModal({ onClose, reason = "account" }: { onClose: (
       aria-modal="true"
       aria-label="Comptes et forfaits"
     >
-      <div className="relative w-full max-w-2xl rounded-2xl bg-white p-8 shadow-xl" onClick={(e) => e.stopPropagation()}>
+      <div className="relative max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-2xl bg-white p-8 shadow-xl" onClick={(e) => e.stopPropagation()}>
         <button
           type="button"
           onClick={onClose}
@@ -85,13 +92,18 @@ export default function PlansModal({ onClose, reason = "account" }: { onClose: (
         <h2 className="mt-3 text-xl font-bold text-gray-900">{copy.heading}</h2>
         <p className="mt-1 text-sm text-gray-600">{copy.description}</p>
 
-        <div className="mt-6 grid gap-4 sm:grid-cols-3">
+        <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {PLANS.map((plan) => (
             <div
               key={plan.name}
               className={`rounded-xl border p-4 ${plan.highlighted ? "border-2 border-brand-500" : "border-gray-200"}`}
             >
-              <p className="text-sm font-bold text-gray-900">{plan.name}</p>
+              <div className="flex items-center gap-2">
+                <p className="text-sm font-bold text-gray-900">{plan.name}</p>
+                {plan.badge ? (
+                  <span className="rounded-full bg-brand-100 px-2 py-0.5 text-[10px] font-bold text-brand-700">{plan.badge}</span>
+                ) : null}
+              </div>
               <p className="text-xs text-gray-500">{plan.tagline}</p>
               <ul className="mt-3 space-y-2">
                 {plan.benefits.map((benefit) => (
